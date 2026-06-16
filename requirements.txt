@@ -1,0 +1,8 @@
+arxiv
+pymupdf
+langchain
+langchain-community
+chromadb
+sentence-transformers
+openai
+python-dotenv
