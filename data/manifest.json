@@ -1,0 +1,30 @@
+{
+  "total_pdfs": 251,
+  "domains": [
+    {
+      "domain": "federated_learning",
+      "downloaded": 65,
+      "skipped_duplicate": 35,
+      "failed": 0,
+      "failed_ids": []
+    },
+    {
+      "domain": "privacy_ml",
+      "downloaded": 87,
+      "skipped_duplicate": 12,
+      "failed": 1,
+      "failed_ids": [
+        "2209.14086"
+      ]
+    },
+    {
+      "domain": "deepfake_detection",
+      "downloaded": 99,
+      "skipped_duplicate": 0,
+      "failed": 1,
+      "failed_ids": [
+        "2409.14289"
+      ]
+    }
+  ]
+}
