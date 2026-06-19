@@ -1,0 +1,95 @@
+{
+  "questions": [
+    {
+  "question": "How does FedAvg aggregate client model updates?",
+  "ground_truth_answer": "FedAvg aggregates client model updates by having each client perform several local SGD steps on its own private data, then sending the updated local weights back to a central server. The server computes a weighted average of all client updates, where each client's contribution is weighted by the proportion of data it holds relative to the total dataset across all clients. This weighted averaging step happens once per communication round, after which the updated global model is sent back to clients for the next round of local training.",
+  "relevant_paper_ids": ["2605.18020", "2409.00974", "2012.06706"],
+  "domain": "federated_learning",
+  "question_type": "factual"
+},
+    {
+  "question": "What are the main challenges of federated learning with non-IID data?",
+  "ground_truth_answer": "Federated learning with non-IID (non-independent and identically distributed) data faces several key challenges. First, when client data distributions differ significantly, local model updates diverge from each other, causing slower convergence and reduced final accuracy compared to IID settings. Second, non-IID data increases the risk of privacy leakage, since data sharing or knowledge distillation techniques used to address non-IID challenges can inadvertently expose more information about individual clients' data than standard FedAvg. Third, there is no consensus on quantitative criteria for measuring the severity of non-IID effects or the resulting privacy leakage, making it difficult to compare solutions across different studies. Researchers have proposed solutions across three categories: data-level approaches (e.g. data sharing, augmentation), algorithm-level approaches (e.g. adaptive optimizers, group normalization, local fine-tuning, personalization), and system-level approaches.",
+  "relevant_paper_ids": ["2106.06843"],
+  "domain": "federated_learning",
+  "question_type": "factual"
+},
+    {
+  "question": "How does FedProx differ from FedAvg in handling system heterogeneity?",
+  "ground_truth_answer": "FedProx extends FedAvg by adding a proximal term to the local client objective function, which penalizes local model updates that drift too far from the current global model. This addresses a key weakness of standard FedAvg: in heterogeneous settings where clients have different amounts of compute, varying numbers of local update steps, or unstable participation, FedAvg can suffer from client drift and unstable convergence. By constraining how far local updates can deviate, FedProx improves robustness and stability in these heterogeneous networks. Empirically, FedProx has been shown to outperform FedAvg by a significant margin on benchmarks like MNIST, FEMNIST, Shakespeare, and Sent140, with reported average accuracy improvements of over 22% in some heterogeneous settings.",
+  "relevant_paper_ids": ["1910.08234", "2306.14483", "2605.27816"],
+  "domain": "federated_learning",
+  "question_type": "comparison"
+},
+    {
+  "question": "What is the role of secure aggregation in federated learning privacy?",
+  "ground_truth_answer": "Secure aggregation is a cryptographic protocol that allows a central server to compute the sum or average of client model updates without ever seeing any individual client's update in plaintext. It typically uses techniques like secret sharing or pairwise masking, where each client adds random noise that cancels out only when all updates are summed together — the server only ever sees the final aggregated result, not individual contributions. This protects against an honest-but-curious server inferring private information from a single client's raw update. However, secure aggregation is not a complete privacy solution: research has shown it can still be circumvented through model inconsistency attacks, where a malicious server sends different model states to different clients to isolate and infer individual updates despite the aggregation protocol. Efficient implementations like FastSecAgg have also been developed to make secure aggregation scalable for large numbers of clients without prohibitive computational overhead.",
+  "relevant_paper_ids": ["1611.04482", "2009.11248", "2111.07380"],
+  "domain": "federated_learning",
+  "question_type": "factual"
+},
+    {
+  "question": "How do personalized federated learning approaches differ from standard FedAvg?",
+  "ground_truth_answer": "Standard FedAvg trains a single global model shared identically by all clients, which performs poorly when client data distributions are highly heterogeneous since one global model cannot fit all local distributions well. Personalized federated learning instead aims to produce a customized model for each client while still benefiting from collaborative training. Approaches to personalization vary: some methods add personalization layers, where the lower layers of the network are shared globally (theta) while upper layers are fine-tuned locally per client using a regularization parameter (gamma) to balance global and local objectives. Other methods like FedPer and FedRep split the network into shared base layers and personalized head layers. Methods like APFL and FedAvg+kNN-Per interpolate or ensemble between a globally-trained FedAvg model and a locally-trained model, rather than training one model end-to-end. FedProx and pFedMe instead modify the optimization objective itself with proximal or regularization terms to allow controlled personalization. Across all these approaches, the common goal is trading off the benefits of shared collaborative learning against the need for client-specific adaptation under non-IID conditions.",
+  "relevant_paper_ids": ["2306.14483", "2106.06843", "2206.09262"],
+  "domain": "federated_learning",
+  "question_type": "comparison"
+},
+    {
+  "question": "What communication-efficiency techniques are used to reduce federated learning overhead?",
+  "ground_truth_answer": "Federated learning suffers from high latency and communication overhead because clients must repeatedly exchange model updates with the central server over many rounds, and this gets worse with poor network conditions. Several categories of techniques address this. Compensated overlap methods overlap the communication phase with local computation, hiding network latency behind training time rather than treating them as sequential steps. Model compression and quantization techniques reduce the size of each update transmitted, lowering bandwidth requirements per round. Some approaches focus on robustness alongside efficiency, addressing the risk that malicious clients send carefully constructed poisoned updates during compressed or asynchronous communication schemes, which is a tradeoff communication-efficient methods need to account for. Techniques like 'Model Replica' aim to guarantee enough information is gathered from different workers during aggregation even when communication is reduced, helping maintain convergence quality despite fewer or smaller communication exchanges.",
+  "relevant_paper_ids": ["2012.06706", "2004.11794", "1908.07782"],
+  "domain": "federated_learning",
+  "question_type": "summarisation"
+},
+    {
+  "question": "Compare gradient compression and quantization approaches for federated learning communication efficiency",
+  "ground_truth_answer": "Gradient compression and quantization are two related but distinct strategies for reducing federated learning communication costs. Quantization reduces the precision of transmitted values — representing model updates using low-precision data types (e.g. fewer bits per parameter) instead of full floating point precision, shrinking the size of each transmitted update. Sparsification, a related compression technique, instead transmits only a subset of the most significant gradient values rather than the full update, reducing the number of values sent rather than their precision. A specific compression method, Deep Gradient Compression (DGC), has been shown to reduce communication bandwidth by roughly two orders of magnitude while maintaining model quality. Some recent work also explores asynchronous federated learning with bidirectional quantized communication, applying quantization to both the client-to-server and server-to-client directions, combined with buffered aggregation to handle clients that communicate at different speeds. In general, quantization and sparsification can be combined, and the right choice depends on the tradeoff between communication savings and the resulting impact on convergence speed and final model accuracy.",
+  "relevant_paper_ids": ["2012.06706", "1806.00582", "2308.00263"],
+  "domain": "federated_learning",
+  "question_type": "comparison"
+},
+    {
+  "question": "How does client drift occur in federated learning and what causes it?",
+  "ground_truth_answer": "Client drift occurs when each client's local gradient updates diverge from the true global optimization direction, causing unstable and slow convergence. The root cause is data heterogeneity: when clients perform multiple local SGD steps on their own non-IID data before communicating with the server, each client's local model moves toward its own local optimum rather than the shared global optimum. The more local steps taken per communication round, the further this local drift accumulates before it gets corrected by aggregation. This creates a gap between where each client's optimization actually heads and where the true global objective would direct it, visualized as client updates pulling away from the server's intended trajectory. The SCAFFOLD algorithm directly addresses this by introducing control variates that estimate and correct for the client-drift direction, effectively removing the client-variance in gradients across clients and stabilizing convergence even under significant data heterogeneity.",
+  "relevant_paper_ids": ["1910.06378", "2505.19605"],
+  "domain": "federated_learning",
+  "question_type": "factual"
+},
+    {
+  "question": "What evaluation metrics are commonly used to assess federated learning convergence?",
+  "ground_truth_answer": "Federated learning convergence is commonly assessed using global model accuracy on a held-out test set, tracked across communication rounds to observe how quickly and stably the model improves. The convergence condition is typically checked after each aggregation round, where the server updates the global model as a weighted average of client updates (w(t+1) = w(t) - eta * sum of (n_k/n) * gradient_k(t)) and evaluates whether performance has stabilized or a target accuracy has been reached. Papers also report results across varying hyperparameter configurations (e.g. number of local epochs, client participation rate, data heterogeneity level) to show how convergence speed and final accuracy are affected by these factors, often presented as accuracy tables with standard deviations across multiple runs. Beyond raw accuracy, some studies also track the number of communication rounds needed to reach a target accuracy threshold, since communication efficiency is itself often a competing objective alongside model quality in federated settings.",
+  "relevant_paper_ids": ["2409.13004", "2103.15947"],
+  "domain": "federated_learning",
+  "question_type": "summarisation"
+},
+    {
+  "question": "How do federated learning approaches differ when applied to healthcare versus general IoT settings?",
+  "ground_truth_answer": "Federated learning in general IoT settings primarily addresses the challenge of training models on data generated by vast numbers of resource-constrained edge devices, where the core motivation is avoiding the privacy risk of transmitting raw edge-device data to a central network or fog computing node for training. IoT-focused federated learning research tends to emphasize techniques like knowledge distillation, where teacher models trained on sensitive local data are used to label public data in a semi-supervised fashion, allowing useful signal to be shared without exposing raw private data. Healthcare-specific federated learning, by contrast, places stronger emphasis on formal security guarantees, since healthcare data is subject to strict regulatory requirements and any leakage has direct legal and ethical consequences. Real-world healthcare federated learning deployments rely heavily on secure aggregation protocols that cryptographically guarantee a central server cannot see any individual hospital or institution's update, addressing the heightened sensitivity of medical records compared to general IoT sensor data. In short, IoT federated learning research tends to optimize for scale and device heterogeneity, while healthcare federated learning research tends to optimize for rigorous, provable privacy guarantees given the sensitivity of the data involved.",
+  "relevant_paper_ids": ["2004.11794", "2409.00974"],
+  "domain": "federated_learning",
+  "question_type": "multi_hop"
+},
+    {
+  "question": "What is differential privacy and how is the epsilon parameter defined?",
+  "ground_truth_answer": "Differential privacy is a formal mathematical framework for quantifying and guaranteeing the privacy of individuals in a dataset. A randomized algorithm A satisfies epsilon-differential privacy if, for any two adjacent inputs (datasets that differ by exactly one record), the probability of the algorithm producing any particular output differs by at most a factor of e^epsilon between the two datasets. Formally, for all subsets S of possible outputs, P[A(D) in S] <= e^epsilon * P[A(D') in S], where D and D' are adjacent (neighboring) databases differing by one individual's data. Epsilon (the privacy budget) controls the strength of the privacy guarantee: smaller epsilon values mean the algorithm's output distribution changes less when one individual's data is added or removed, providing stronger privacy at the cost of more noise and reduced utility. A relaxed version, (epsilon, delta)-differential privacy, adds a small additive term delta that allows the strict multiplicative bound to be violated with very low probability delta, which is often used in practice because it allows for more flexible and efficient privacy-preserving mechanisms like the Gaussian mechanism.",
+  "relevant_paper_ids": ["2605.02372", "2311.17453", "0803.3946"],
+  "domain": "privacy_ml",
+  "question_type": "factual"
+},
+    {
+  "question": "What is a membership inference attack and how does it exploit trained models?",
+  "ground_truth_answer": "A membership inference attack (MIA) is a privacy attack where an adversary attempts to determine whether a specific data record was part of a model's training dataset, without having direct access to that dataset. In the most common black-box setting, the adversary can only query the model's prediction API with an input and observe the corresponding output (e.g. confidence scores), without seeing the model's internal parameters. The attack exploits a well-documented phenomenon: machine learning models tend to be more confident and produce lower loss on examples they were trained on compared to unseen examples, because models partially memorize their training data. By analyzing patterns in the model's output confidence or loss for a given input, an attacker can train a separate 'attack model' to distinguish between member and non-member records with better-than-random accuracy. This poses a genuine privacy risk when training data is sensitive, since successfully inferring that a particular individual's record was used in training a medical or financial model can itself leak private information about that individual. Researchers have also raised concerns that some early evaluation and reporting practices in this area were misleading, and have called for more rigorous, standardized evaluation methodology when measuring how effective these attacks really are.",
+  "relevant_paper_ids": ["1807.09173", "2501.02182", "2005.13702"],
+  "domain": "privacy_ml",
+  "question_type": "factual"
+},
+    {
+  "question": "How does adding differential privacy noise affect model utility and accuracy trade-offs?",
+  "ground_truth_answer": "Adding differential privacy noise to model updates — typically Gaussian noise with variance sigma-squared times S-squared, where S is a clipping bound on the update norm — creates a direct tradeoff between privacy strength and model utility. Larger noise scale (sigma) provides a stronger privacy guarantee (smaller epsilon) but degrades model accuracy, since the noise corrupts the true signal in the gradient or model update before it's aggregated. Injecting excessively large noise can severely harm convergence and final model performance, particularly in federated learning where noise is added repeatedly across many communication rounds, compounding its effect over time. To manage this tradeoff, some approaches use dynamic differential privacy noise, where the noise scale sigma_t is adjusted across training rounds rather than fixed throughout, accounting for factors such as how many rounds remain and the desired final privacy budget. This dynamic scaling can preserve more utility for a given total privacy budget compared to using the same large fixed noise level throughout the entire training process.",
+  "relevant_paper_ids": ["2409.13004", "2303.15563"],
+  "domain": "privacy_ml",
+  "question_type": "comparison"
+}
+  ]
+}
