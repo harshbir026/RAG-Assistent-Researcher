@@ -1,6 +1,12 @@
 import os
+import time
 from dotenv import load_dotenv
 from openai import OpenAI
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from openai import RateLimitError, APIError
+from src.logger import log_query, get_logger
+
+logger = get_logger(__name__)
 
 from src.retrieve import retrieve_dense, RetrievedChunk
 
@@ -27,10 +33,14 @@ Rules:
    the format: (Paper Title, Year)
 2. If the context does not contain enough information to answer the question,
    say so explicitly — do not guess or fill gaps with outside knowledge.
-3. If different papers disagree or present different approaches, mention this.
-4. Keep your answer focused and well-organized. Use bullet points if comparing
+3. If no context was retrieved at all (the context says "No relevant context
+   was found"), respond with exactly: "I don't have enough information in my
+   knowledge base to answer this question." Do not attempt to answer from
+   general knowledge.
+4. If different papers disagree or present different approaches, mention this.
+5. Keep your answer focused and well-organized. Use bullet points if comparing
    multiple papers or methods.
-5. Do not fabricate paper titles, authors, or findings not present in the context.
+6. Do not fabricate paper titles, authors, or findings not present in the context.
 """
 # ──────────────────────────────────────────────────────────
 
@@ -64,63 +74,91 @@ def build_context_block(chunks: list[RetrievedChunk]) -> str:
 
     return "\n\n".join(blocks)
 
-
+@retry(
+    stop=stop_after_attempt(4),
+    wait=wait_exponential(multiplier=1, min=2, max=20),
+    retry=retry_if_exception_type((RateLimitError, APIError)),
+    reraise=True,
+)
+def _call_openai_with_retry(model: str, temperature: float, messages: list):
+    """
+    Calls the OpenAI chat completion API with exponential backoff retry.
+    Retries up to 4 times on RateLimitError or APIError, waiting
+    2s, 4s, 8s, 16s (capped at 20s) between attempts.
+    """
+    return client.chat.completions.create(
+        model=model,
+        temperature=temperature,
+        messages=messages,
+    )
 def generate_answer(
     query: str,
     chunks: list[RetrievedChunk],
     model: str = MODEL_NAME,
     temperature: float = TEMPERATURE,
 ) -> dict:
-    """
-    Generate a cited answer from retrieved chunks using an LLM.
+    start_time = time.time()
+    chunk_ids = [f"{c.arxiv_id}_chunk_{c.chunk_index}" for c in chunks]
 
-    Args:
-        query: the user's question
-        chunks: list of RetrievedChunk from retrieve_dense()
-        model: OpenAI model name
-        temperature: sampling temperature (low = more deterministic)
+    try:
+        context_block = build_context_block(chunks)
 
-    Returns:
-        dict with keys: "answer", "context_used", "model", "sources"
-    """
-    context_block = build_context_block(chunks)
-
-    user_message = f"""Context:
+        user_message = f"""Context:
 {context_block}
 
 Question: {query}
 
 Answer the question using only the context above, with citations."""
 
-    response = client.chat.completions.create(
-        model=model,
-        temperature=temperature,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-    )
+        response = _call_openai_with_retry(
+            model=model,
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+        )
 
-    answer_text = response.choices[0].message.content
+        answer_text = response.choices[0].message.content
+        elapsed = time.time() - start_time
 
-    # Collect unique source papers cited in context (not necessarily
-    # all were actually cited by the model — this is what WAS available)
-    sources = list({
-        (c.arxiv_id, c.title, c.year) for c in chunks
-    })
+        log_query(
+            query=query,
+            chunk_ids=chunk_ids,
+            answer_length=len(answer_text),
+            latency_seconds=elapsed,
+            status="ok",
+        )
 
-    return {
-        "answer": answer_text,
-        "context_used": context_block,
-        "model": model,
-        "num_chunks_used": len(chunks),
-        "sources": sources,
-        "usage": {
-            "prompt_tokens": response.usage.prompt_tokens,
-            "completion_tokens": response.usage.completion_tokens,
-            "total_tokens": response.usage.total_tokens,
-        },
-    }
+        sources = list({
+            (c.arxiv_id, c.title, c.year) for c in chunks
+        })
+
+        return {
+            "answer": answer_text,
+            "context_used": context_block,
+            "model": model,
+            "num_chunks_used": len(chunks),
+            "sources": sources,
+            "usage": {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+            },
+        }
+
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"generate_answer failed for query '{query[:50]}...': {e}")
+        log_query(
+            query=query,
+            chunk_ids=chunk_ids,
+            answer_length=0,
+            latency_seconds=elapsed,
+            status="error",
+            error=str(e),
+        )
+        raise
 
 
 def ask(query: str, k: int = 5) -> dict:

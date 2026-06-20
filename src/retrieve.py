@@ -2,6 +2,41 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from sentence_transformers import SentenceTransformer
 import chromadb
+from src.logger import get_logger
+logger = get_logger(__name__)
+
+class QueryValidationError(ValueError):
+    """Raised when a query fails validation before retrieval is attempted."""
+    pass
+
+
+MIN_QUERY_LENGTH = 10
+MAX_QUERY_LENGTH = 500
+
+
+def validate_query(query: str) -> str:
+    """
+    Validate and normalize a user query before retrieval.
+    Raises QueryValidationError with a clear message if invalid.
+    """
+    query = query.strip()
+
+    if not query:
+        raise QueryValidationError("Query cannot be empty.")
+
+    if len(query) < MIN_QUERY_LENGTH:
+        raise QueryValidationError(
+            f"Query too short ({len(query)} chars). "
+            f"Minimum {MIN_QUERY_LENGTH} characters required."
+        )
+
+    if len(query) > MAX_QUERY_LENGTH:
+        raise QueryValidationError(
+            f"Query too long ({len(query)} chars). "
+            f"Maximum {MAX_QUERY_LENGTH} characters allowed."
+        )
+
+    return query
 
 # ── config ────────────────────────────────────────────────
 CHROMA_DIR = Path("data/chroma_db")
@@ -62,6 +97,7 @@ def retrieve_dense(
     k: int = 5,
     similarity_threshold: float = SIMILARITY_THRESHOLD,
 ) -> list[RetrievedChunk]:
+    query = validate_query(query)
     """
     Embed a query and retrieve the top-k most similar chunks from ChromaDB.
 
@@ -125,6 +161,9 @@ def retrieve_dense(
             chunk_index=meta.get("chunk_index", 0),
             total_chunks=meta.get("total_chunks", 0),
         ))
+
+    if not retrieved:
+        logger.warning(f"No chunks passed threshold for query: '{query[:60]}...'")
 
     return retrieved
 

@@ -8,3 +8,4 @@ data/chroma_db/
 results/*.png
 results/*.html
 .DS_Store
+logs/
