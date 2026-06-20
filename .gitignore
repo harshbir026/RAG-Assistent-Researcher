@@ -1,8 +1,10 @@
 venv/
+venv_eval/
 .env
 __pycache__/
 *.pyc
 data/papers/
 data/chroma_db/
-results/
+results/*.png
+results/*.html
 .DS_Store

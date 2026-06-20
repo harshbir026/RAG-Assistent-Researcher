@@ -1,0 +1,13 @@
+{
+  "scores": {
+    "faithfulness": 0.9333333333333333,
+    "answer_relevancy": 0.875665097834726,
+    "context_precision": 0.900888888865523,
+    "context_recall": 0.9640000000000001
+  },
+  "n_questions": 25,
+  "tier": null,
+  "retriever": "retrieve_dense",
+  "k": 5,
+  "elapsed_minutes": 25.38
+}
