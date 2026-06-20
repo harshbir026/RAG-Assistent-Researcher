@@ -9,3 +9,5 @@ results/*.png
 results/*.html
 .DS_Store
 logs/
+data/parsed/
+data/parsed/
