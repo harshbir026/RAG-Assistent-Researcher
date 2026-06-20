@@ -27,7 +27,7 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── RAGAS client/llm/embeddings setup ──────────────────────
 _openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-llm = llm_factory("gpt-4o-mini", client=_openai_client)
+llm = llm_factory("gpt-4o-mini", client=_openai_client, max_tokens=2000)
 embeddings = embedding_factory(client=_openai_client)
 
 
