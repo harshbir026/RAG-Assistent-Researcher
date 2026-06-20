@@ -177,6 +177,38 @@ def run_test_suite():
 
     print(f"\nEstimated total cost for this test run: ${total_cost_estimate:.4f}")
 
+def generate_answer_stream(query: str, chunks: list[RetrievedChunk]):
+    """
+    Same as generate_answer(), but yields tokens as they arrive from
+    the OpenAI API instead of waiting for the full response.
+
+    This is a generator function (uses yield) — callers iterate over it
+    to receive tokens one at a time as they're produced.
+    """
+    context_block = build_context_block(chunks)
+
+    user_message = f"""Context:
+{context_block}
+
+Question: {query}
+
+Answer the question using only the context above, with citations."""
+
+    stream = client.chat.completions.create(
+        model=MODEL_NAME,
+        temperature=TEMPERATURE,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_message},
+        ],
+        stream=True,  # this is the only difference from generate_answer()
+    )
+
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield delta
+
 
 if __name__ == "__main__":
     run_test_suite()
