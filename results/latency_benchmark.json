@@ -1,0 +1,102 @@
+{
+  "summary": {
+    "n_queries": 10,
+    "retrieval": {
+      "avg": 0.083,
+      "min": 0.064,
+      "max": 0.111
+    },
+    "generation": {
+      "avg": 5.383,
+      "min": 2.364,
+      "max": 8.382
+    },
+    "total": {
+      "avg": 6.196,
+      "min": 2.444,
+      "max": 15.289
+    }
+  },
+  "per_query": [
+    {
+      "query": "How does FedAvg aggregate client model updates?",
+      "retrieval_latency_s": 7.384,
+      "generation_latency_s": 7.905,
+      "total_latency_s": 15.289,
+      "num_chunks": 5,
+      "total_tokens": 3071
+    },
+    {
+      "query": "What are the main challenges of federated learning with non-IID data?",
+      "retrieval_latency_s": 0.081,
+      "generation_latency_s": 6.361,
+      "total_latency_s": 6.443,
+      "num_chunks": 5,
+      "total_tokens": 3256
+    },
+    {
+      "query": "How does FedProx differ from FedAvg in handling system heterogeneity?",
+      "retrieval_latency_s": 0.08,
+      "generation_latency_s": 2.364,
+      "total_latency_s": 2.444,
+      "num_chunks": 5,
+      "total_tokens": 2330
+    },
+    {
+      "query": "What is the role of secure aggregation in federated learning privacy?",
+      "retrieval_latency_s": 0.084,
+      "generation_latency_s": 4.953,
+      "total_latency_s": 5.037,
+      "num_chunks": 5,
+      "total_tokens": 3241
+    },
+    {
+      "query": "What is differential privacy and how is epsilon defined?",
+      "retrieval_latency_s": 0.093,
+      "generation_latency_s": 3.986,
+      "total_latency_s": 4.079,
+      "num_chunks": 5,
+      "total_tokens": 2776
+    },
+    {
+      "query": "What is a membership inference attack and how does it work?",
+      "retrieval_latency_s": 0.064,
+      "generation_latency_s": 6.587,
+      "total_latency_s": 6.651,
+      "num_chunks": 5,
+      "total_tokens": 2913
+    },
+    {
+      "query": "What facial or frequency-domain artifacts help detect deepfakes?",
+      "retrieval_latency_s": 0.065,
+      "generation_latency_s": 6.503,
+      "total_latency_s": 6.567,
+      "num_chunks": 5,
+      "total_tokens": 3307
+    },
+    {
+      "query": "How do CNN-based deepfake detectors generalize to unseen GAN architectures?",
+      "retrieval_latency_s": 0.111,
+      "generation_latency_s": 3.872,
+      "total_latency_s": 3.983,
+      "num_chunks": 5,
+      "total_tokens": 2145
+    },
+    {
+      "query": "How does client drift occur in federated learning?",
+      "retrieval_latency_s": 0.091,
+      "generation_latency_s": 8.382,
+      "total_latency_s": 8.473,
+      "num_chunks": 5,
+      "total_tokens": 2595
+    },
+    {
+      "query": "What defenses exist against membership inference attacks?",
+      "retrieval_latency_s": 0.077,
+      "generation_latency_s": 2.919,
+      "total_latency_s": 2.996,
+      "num_chunks": 5,
+      "total_tokens": 1701
+    }
+  ]
+}

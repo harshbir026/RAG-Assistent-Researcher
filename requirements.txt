@@ -41,6 +41,7 @@ httpx-sse==0.4.3
 huggingface_hub==1.19.0
 idna==3.18
 importlib_resources==7.1.0
+iniconfig==2.3.0
 instructor==1.15.3
 itsdangerous==2.2.0
 Jinja2==3.1.6
@@ -92,6 +93,7 @@ overrides==7.7.0
 packaging==25.0
 pandas==3.0.3
 pillow==12.2.0
+pluggy==1.6.0
 propcache==0.5.2
 protobuf==6.33.6
 pyarrow==24.0.0
@@ -104,6 +106,8 @@ Pygments==2.20.0
 PyMuPDF==1.27.2.3
 PyPika==0.51.1
 pyproject_hooks==1.2.0
+pytest==9.1.1
+pytest-mock==3.15.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 python-multipart==0.0.32

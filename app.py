@@ -606,7 +606,12 @@ if ask_clicked and query.strip():
     with st.spinner("Embedding query · Searching 251 papers · Generating answer…"):
         start_time = time.time()
         chunks = retrieve_dense(query, k=k)
+        retrieval_elapsed = time.time() - start_time
+
+        gen_start = time.time()
         result = generate_answer(query, chunks)
+        generation_elapsed = time.time() - gen_start
+
         elapsed = time.time() - start_time
 
     st.session_state.history.insert(0, {
@@ -614,6 +619,8 @@ if ask_clicked and query.strip():
         "result": result,
         "chunks": chunks,
         "elapsed": elapsed,
+        "retrieval_elapsed": retrieval_elapsed,
+        "generation_elapsed": generation_elapsed,
     })
 
 elif ask_clicked and not query.strip():
@@ -645,6 +652,11 @@ if st.session_state.history:
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    st.caption(
+        f"Retrieved in {latest['retrieval_elapsed']:.2f}s, "
+        f"generated in {latest['generation_elapsed']:.2f}s"
+    )
 
     # ── ANSWER ──
     st.markdown(f"""
