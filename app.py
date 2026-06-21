@@ -4,6 +4,7 @@ import html
 
 from src.retrieve import retrieve_dense
 from src.generate import generate_answer
+from src.generate import generate_answer, generate_answer_stream
 
 # ── page config ───────────────────────────────────────────
 st.set_page_config(
@@ -603,16 +604,57 @@ st.markdown("</div>", unsafe_allow_html=True)
 
 # ── QUERY EXECUTION ───────────────────────────────────────
 if ask_clicked and query.strip():
-    with st.spinner("Embedding query · Searching 251 papers · Generating answer…"):
-        start_time = time.time()
-        chunks = retrieve_dense(query, k=k)
-        retrieval_elapsed = time.time() - start_time
+    start_time = time.time()
+    chunks = retrieve_dense(query, k=k)
+    retrieval_elapsed = time.time() - start_time
 
-        gen_start = time.time()
-        result = generate_answer(query, chunks)
-        generation_elapsed = time.time() - gen_start
+    # show sources immediately — retrieval is fast, no need to wait for generation
+    st.markdown("""
+    <div class='section-header'>
+        <div class='sh-icon'>📄</div>
+        <div class='sh-title'>Retrieved Sources</div>
+    </div>
+    """, unsafe_allow_html=True)
+    for i, chunk in enumerate(chunks, 1):
+        st.caption(f"[{i}] {chunk.title[:70]} — similarity: {chunk.similarity:.3f}")
 
-        elapsed = time.time() - start_time
+    # stream the answer token by token
+    st.markdown("""
+    <div class='section-header'>
+        <div class='sh-icon'>⚡</div>
+        <div class='sh-title'>Generated Answer</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    answer_placeholder = st.empty()
+    full_answer = ""
+    gen_start = time.time()
+
+    for token in generate_answer_stream(query, chunks):
+        full_answer += token
+        answer_placeholder.markdown(
+            f"<div class='answer-card'><div class='answer-text'>{html.escape(full_answer)}▋</div></div>",
+            unsafe_allow_html=True,
+        )
+
+    generation_elapsed = time.time() - gen_start
+    elapsed = time.time() - start_time
+
+    # final render — no cursor, clean output
+    answer_placeholder.markdown(
+        f"<div class='answer-card'><div class='answer-text'>{html.escape(full_answer)}</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    st.caption(f"Retrieved in {retrieval_elapsed:.2f}s, generated in {generation_elapsed:.2f}s")
+
+    # build a result dict matching generate_answer()'s shape, for history storage
+    result = {
+        "answer": full_answer,
+        "num_chunks_used": len(chunks),
+        "usage": {"total_tokens": 0, "prompt_tokens": 0, "completion_tokens": 0},  # not available from stream
+        "sources": list({(c.arxiv_id, c.title, c.year) for c in chunks}),
+    }
 
     st.session_state.history.insert(0, {
         "query": query,
@@ -628,7 +670,7 @@ elif ask_clicked and not query.strip():
 
 
 # ── LATEST RESULT ─────────────────────────────────────────
-if st.session_state.history:
+if st.session_state.history and not (ask_clicked and query.strip()):
     latest = st.session_state.history[0]
 
     # ── METRICS ──
