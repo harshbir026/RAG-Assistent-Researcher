@@ -1,6 +1,9 @@
 from pathlib import Path
 from dataclasses import dataclass, field
 from sentence_transformers import SentenceTransformer
+import pickle
+import math
+from rank_bm25 import BM25Okapi
 import chromadb
 from src.logger import get_logger
 logger = get_logger(__name__)
@@ -166,7 +169,125 @@ def retrieve_dense(
         logger.warning(f"No chunks passed threshold for query: '{query[:60]}...'")
 
     return retrieved
+# ── BM25 config ──────────────────────────────────────────
+BM25_INDEX_PATH = Path("data/bm25_index.pkl")
 
+
+def _tokenize(text: str) -> list[str]:
+    """
+    Simple whitespace + lowercase tokenizer.
+    Must be identical for both index building and query tokenization —
+    any mismatch silently degrades retrieval quality because the BM25
+    vocabulary won't match the query terms.
+    """
+    return text.lower().split()
+
+
+def _build_bm25_index() -> tuple[BM25Okapi, list[dict]]:
+    """
+    Build BM25 index over all chunks from the JSONL file.
+    Takes ~2 minutes first time. Saves to disk so subsequent calls
+    load instantly (~1 second).
+    """
+    from pathlib import Path
+    import json
+
+    chunks_path = Path("data/chunks/all_chunks.jsonl")
+    if not chunks_path.exists():
+        raise FileNotFoundError("No chunks file — run chunk.py first.")
+
+    print("Building BM25 index from all chunks (one-time, ~2 min)...")
+    corpus = []
+    chunk_store = []
+
+    with open(chunks_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            chunk = json.loads(line)
+            corpus.append(_tokenize(chunk["text"]))
+            chunk_store.append(chunk)
+
+    bm25 = BM25Okapi(corpus)
+    print(f"BM25 index built over {len(corpus):,} chunks.")
+
+    with open(BM25_INDEX_PATH, "wb") as f:
+        pickle.dump({"bm25": bm25, "chunks": chunk_store}, f)
+    print(f"Index saved to {BM25_INDEX_PATH}")
+
+    return bm25, chunk_store
+
+
+def _load_bm25_index() -> tuple[BM25Okapi, list[dict]]:
+    """Load from disk if it exists, otherwise build it."""
+    if BM25_INDEX_PATH.exists():
+        with open(BM25_INDEX_PATH, "rb") as f:
+            data = pickle.load(f)
+        return data["bm25"], data["chunks"]
+    return _build_bm25_index()
+
+
+# module-level singleton — same lazy-load pattern as dense retrieval
+_bm25 = None
+_bm25_chunks = None
+
+
+def _get_bm25():
+    global _bm25, _bm25_chunks
+    if _bm25 is None:
+        _bm25, _bm25_chunks = _load_bm25_index()
+    return _bm25, _bm25_chunks
+
+
+def retrieve_bm25(
+    query: str,
+    k: int = 5,
+) -> list[RetrievedChunk]:
+    """
+    BM25 sparse retrieval — keyword-based scoring.
+
+    Returns the same List[RetrievedChunk] format as retrieve_dense()
+    so downstream code (generate.py, evaluate.py) doesn't need to
+    know which retriever produced the result.
+
+    BM25 wins on: exact term matches, acronyms (FedAvg, GAN, BERT),
+    technical identifiers, queries that need specific keywords present.
+    Dense wins on: semantic/conceptual queries, paraphrase matching,
+    queries where the exact term doesn't appear in relevant chunks.
+    """
+    query = validate_query(query)
+
+    bm25, chunk_store = _get_bm25()
+    tokenized_query = _tokenize(query)
+
+    scores = bm25.get_scores(tokenized_query)
+    top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:k]
+
+    retrieved = []
+    for idx in top_indices:
+        score = scores[idx]
+        if score <= 0:
+            continue   # BM25 score of 0 means no term overlap at all — skip
+
+        chunk = chunk_store[idx]
+        # Normalise BM25 score to a 0-1 range for consistent display.
+        # BM25 scores have no fixed upper bound, so we use a soft cap:
+        # score / (score + 10) maps any positive score to (0, 1).
+        normalised_score = round(score / (score + 10), 4)
+
+        retrieved.append(RetrievedChunk(
+            text=chunk.get("text", ""),
+            similarity=normalised_score,
+            arxiv_id=chunk.get("arxiv_id", ""),
+            title=chunk.get("title", ""),
+            authors=chunk.get("authors", ""),
+            year=chunk.get("year", ""),
+            chunk_index=chunk.get("chunk_index", 0),
+            total_chunks=chunk.get("total_chunks", 0),
+        ))
+
+    return retrieved
 
 def print_results(query: str, results: list[RetrievedChunk]) -> None:
     """Pretty-print retrieval results for manual inspection."""

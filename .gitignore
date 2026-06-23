@@ -11,3 +11,4 @@ results/*.html
 logs/
 data/parsed/
 data/parsed/
+data/bm25_index.pkl
