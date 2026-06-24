@@ -16,7 +16,7 @@ from ragas.llms import llm_factory
 from ragas.embeddings import embedding_factory
 from openai import OpenAI
 
-from src.retrieve import retrieve_dense
+from src.retrieve import retrieve_dense, retrieve_bm25
 from src.generate import generate_answer
 
 load_dotenv()
@@ -190,10 +190,18 @@ def run_ragas_eval(
 
 
 if __name__ == "__main__":
-    # First full run — all 25 questions, dense retrieval only
+    # Commented out so we don't re-run the dense baseline
+    # run_ragas_eval(
+    #     retriever_fn=retrieve_dense,
+    #     tier=None,
+    #     k=5,
+    #     output_name="dense_eval",
+    # )
+
+    # Run BM25 evaluation
     run_ragas_eval(
-        retriever_fn=retrieve_dense,
+        retriever_fn=retrieve_bm25,
         tier=None,
         k=5,
-        output_name="dense_eval",
+        output_name="bm25_eval",
     )
