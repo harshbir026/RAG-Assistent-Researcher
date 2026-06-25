@@ -334,6 +334,60 @@ def run_test_suite():
     print("✅  Manually verify each result above is topically relevant.")
     print("=" * 60)
 
+def retrieve_hybrid(query: str, k: int = 5) -> list[RetrievedChunk]:
+    """
+    Hybrid Retrieval Pipeline (Two-Stage):
+    Stage 1: Retrieve candidate lists using both Dense (BGE) and Sparse (BM25).
+    Stage 2: Fuse the raw ranks using Reciprocal Rank Fusion (RRF).
+    Stage 3: Extract top candidates and pass to Cross-Encoder Reranker for final top-k selection.
+    
+    Formula: RRF_Score(d) = \sum_{m \in M} \frac{1}{60 + r_m(d)}
+    """
+    # Defensive query validation
+    query = validate_query(query)
+    
+    # 1. Fetch deep candidate pools from both retrieval strategies (fetch k=10 or 15)
+    pool_depth = max(k * 2, 10)
+    dense_candidates = retrieve_dense(query, k=pool_depth)
+    bm25_candidates = retrieve_bm25(query, k=pool_depth)
+    
+    # 2. Compute Reciprocal Rank Fusion scores
+    # We use a standard RRF constant of 60 to prevent early ranks from completely dominating
+    rrf_constant = 60
+    rrf_scores = {}  # maps (arxiv_id, chunk_index) -> float rrf score
+    chunk_lookup = {} # maps (arxiv_id, chunk_index) -> RetrievedChunk object
+    
+    # Process Dense Ranks
+    for rank, chunk in enumerate(dense_candidates, start=1):
+        key = (chunk.arxiv_id, chunk.chunk_index)
+        chunk_lookup[key] = chunk
+        rrf_scores[key] = rrf_scores.get(key, 0.0) + (1.0 / (rrf_constant + rank))
+        
+    # Process BM25 Ranks
+    for rank, chunk in enumerate(bm25_candidates, start=1):
+        key = (chunk.arxiv_id, chunk.chunk_index)
+        chunk_lookup[key] = chunk
+        rrf_scores[key] = rrf_scores.get(key, 0.0) + (1.0 / (rrf_constant + rank))
+        
+    # 3. Sort unique candidates by their cumulative RRF scores descending
+    sorted_keys = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
+    
+    # Build the intermediate candidate list preserving RRF priority order
+    rrf_candidates = []
+    for key in sorted_keys:
+        base_chunk = chunk_lookup[key]
+        # Temporarily store normalized RRF score as similarity metric
+        base_chunk.similarity = round(rrf_scores[key], 5)
+        rrf_candidates.append(base_chunk)
+        
+    # 4. Local execution of Stage 3: Cross-Encoder Reranking
+    # Imported locally to prevent a circular dependency crash with src/rerank.py
+    from src.rerank import rerank
+    
+    # Feed the top RRF candidates directly into the local cross-encoder
+    final_candidates = rerank(query, rrf_candidates, top_n=k)
+    
+    return final_candidates
 
 if __name__ == "__main__":
     run_test_suite()
