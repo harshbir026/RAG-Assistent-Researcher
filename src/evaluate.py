@@ -2,6 +2,7 @@ import os
 import json
 import time
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 from datasets import Dataset
@@ -16,7 +17,7 @@ from ragas.llms import llm_factory
 from ragas.embeddings import embedding_factory
 from openai import OpenAI
 
-from src.retrieve import retrieve_dense, retrieve_bm25
+from src.retrieve import retrieve_dense, retrieve_bm25, retrieve_hybrid
 from src.generate import generate_answer
 
 load_dotenv()
@@ -199,9 +200,15 @@ if __name__ == "__main__":
     # )
 
     # Run BM25 evaluation
+    # run_ragas_eval(
+    #     retriever_fn=retrieve_bm25,
+    #     tier=None,
+    #     k=5,
+    #     output_name="bm25_eval",
+    # )
     run_ragas_eval(
-        retriever_fn=retrieve_bm25,
+        retriever_fn=retrieve_hybrid,
         tier=None,
         k=5,
-        output_name="bm25_eval",
+        output_name="hybrid_eval",
     )
