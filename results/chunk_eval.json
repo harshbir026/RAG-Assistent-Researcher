@@ -1,0 +1,20 @@
+{
+  "Fixed_256": {
+    "faithfulness": 0.8614285714285714,
+    "answer_relevancy": 0.7195930079931278,
+    "context_precision": 0.607777777754713,
+    "context_recall": 0.265
+  },
+  "Fixed_512": {
+    "faithfulness": 0.9155982905982906,
+    "answer_relevancy": 0.9224527677945925,
+    "context_precision": 0.7593055555342488,
+    "context_recall": 0.6666666666666666
+  },
+  "Recursive_512": {
+    "faithfulness": 0.9604395604395605,
+    "answer_relevancy": 0.9194929836640003,
+    "context_precision": 0.8755555555370371,
+    "context_recall": 0.9400000000000001
+  }
+}
