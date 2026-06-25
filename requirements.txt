@@ -41,6 +41,7 @@ executing==2.2.1
 fastapi==0.138.0
 fastjsonschema==2.21.2
 filelock==3.29.4
+FlashRank==0.2.10
 flatbuffers==25.12.19
 fqdn==1.5.1
 frozenlist==1.8.0
