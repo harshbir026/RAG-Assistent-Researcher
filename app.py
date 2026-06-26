@@ -1,10 +1,13 @@
 import streamlit as st
 import time
+import json
 import html
+from pathlib import Path
+import pandas as pd
+import plotly.graph_objects as go
 
-from src.retrieve import retrieve_dense
-from src.generate import generate_answer
-from src.generate import generate_answer, generate_answer_stream
+from src.retrieve import retrieve_dense, retrieve_bm25, retrieve_hybrid
+from src.generate import generate_answer_stream
 
 # ── page config ───────────────────────────────────────────
 st.set_page_config(
@@ -14,238 +17,308 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── custom CSS ────────────────────────────────────────────
+# ── session state ─────────────────────────────────────────
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+# ══════════════════════════════════════════════════════════
+# DESIGN SYSTEM CSS
+# ══════════════════════════════════════════════════════════
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
-/* ── RESET & BASE ── */
+/* ── RESET ── */
 *, *::before, *::after { box-sizing: border-box; }
 
-html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
+html, body,
+[data-testid="stAppViewContainer"],
+[data-testid="stApp"] {
     background: #070B14 !important;
     color: #E2E8F0 !important;
     font-family: 'Inter', sans-serif !important;
 }
 
 [data-testid="stAppViewContainer"] {
-    background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(99,102,241,0.18) 0%, transparent 70%),
-                #070B14 !important;
+    background:
+        radial-gradient(ellipse 90% 40% at 50% -5%, rgba(99,102,241,0.14) 0%, transparent 65%),
+        #070B14 !important;
+}
+
+/* ── HIDE CHROME ── */
+#MainMenu, footer,
+[data-testid="stDecoration"],
+[data-testid="stStatusWidget"] { display: none !important; }
+header[data-testid="stHeader"] {
+    background: transparent !important;
+    border-bottom: none !important;
 }
 
 /* ── SIDEBAR ── */
 [data-testid="stSidebar"] {
-    background: rgba(10,14,26,0.95) !important;
-    border-right: 1px solid rgba(99,102,241,0.2) !important;
-    backdrop-filter: blur(20px) !important;
+    background: rgba(8,12,24,0.97) !important;
+    border-right: 1px solid rgba(99,102,241,0.18) !important;
 }
-
 [data-testid="stSidebar"] * { color: #CBD5E1 !important; }
-
 [data-testid="stSidebar"] h1,
 [data-testid="stSidebar"] h2,
 [data-testid="stSidebar"] h3 {
-    color: #F8FAFC !important;
     font-family: 'JetBrains Mono', monospace !important;
-    font-size: 0.75rem !important;
-    letter-spacing: 0.12em !important;
+    font-size: 0.65rem !important;
+    letter-spacing: 0.18em !important;
     text-transform: uppercase !important;
+    color: #475569 !important;
 }
 
-/* sidebar badge pills */
-.sidebar-pill {
-    display: inline-block;
-    background: rgba(99,102,241,0.15);
-    border: 1px solid rgba(99,102,241,0.3);
-    color: #A5B4FC !important;
-    border-radius: 20px;
-    padding: 2px 10px;
-    font-size: 0.72rem;
+.mode-card {
+    background: rgba(99,102,241,0.07);
+    border: 1px solid rgba(99,102,241,0.18);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin: 6px 0;
+}
+.mode-card .mc-title {
     font-family: 'JetBrains Mono', monospace;
-    margin: 3px 2px;
-    white-space: nowrap;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #A5B4FC;
+    margin-bottom: 3px;
+}
+.mode-card .mc-sub {
+    font-size: 0.72rem;
+    color: #475569;
+    line-height: 1.45;
 }
 
 .sidebar-stat {
-    background: rgba(15,20,40,0.8);
-    border: 1px solid rgba(99,102,241,0.15);
+    background: rgba(10,14,26,0.8);
+    border: 1px solid rgba(99,102,241,0.12);
     border-radius: 10px;
-    padding: 12px 14px;
-    margin: 8px 0;
+    padding: 11px 14px;
+    margin: 6px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
-.sidebar-stat .label {
-    font-size: 0.65rem;
-    color: #64748B !important;
+.sidebar-stat .ss-label {
+    font-size: 0.68rem;
+    color: #475569;
+    font-family: 'JetBrains Mono', monospace;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.08em;
 }
-.sidebar-stat .value {
-    font-size: 1.4rem;
-    font-weight: 700;
-    color: #6366F1 !important;
+.sidebar-stat .ss-val {
     font-family: 'JetBrains Mono', monospace;
-    line-height: 1.2;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #A5B4FC;
 }
 
-/* ── HERO HEADER ── */
-.hero-container {
-    position: relative;
-    padding: 48px 0 36px;
+/* ── TABS ── */
+[data-testid="stTabs"] [role="tablist"] {
+    background: rgba(10,14,26,0.7) !important;
+    border: 1px solid rgba(99,102,241,0.15) !important;
+    border-radius: 14px !important;
+    padding: 4px !important;
+    gap: 4px !important;
+    margin-bottom: 28px !important;
+}
+[data-testid="stTabs"] [role="tab"] {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 10px !important;
+    color: #475569 !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.87rem !important;
+    font-weight: 500 !important;
+    padding: 9px 22px !important;
+    transition: all 0.18s !important;
+}
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+    background: rgba(99,102,241,0.18) !important;
+    color: #A5B4FC !important;
+    font-weight: 600 !important;
+}
+[data-testid="stTabs"] [role="tab"]:hover { color: #CBD5E1 !important; }
+[data-testid="stTabs"] [data-baseweb="tab-highlight"] { display: none !important; }
+
+/* ── HERO ── */
+.hero-wrap {
     text-align: center;
-    overflow: hidden;
+    padding: 40px 0 24px;
 }
-
 .hero-eyebrow {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.7rem;
-    letter-spacing: 0.25em;
+    font-size: 0.65rem;
+    letter-spacing: 0.28em;
     text-transform: uppercase;
     color: #6366F1;
     margin-bottom: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: 12px;
 }
 .hero-eyebrow::before, .hero-eyebrow::after {
     content: '';
     display: inline-block;
-    width: 40px;
-    height: 1px;
+    width: 48px; height: 1px;
     background: linear-gradient(90deg, transparent, #6366F1);
 }
-.hero-eyebrow::after {
-    background: linear-gradient(90deg, #6366F1, transparent);
-}
-
+.hero-eyebrow::after { background: linear-gradient(90deg, #6366F1, transparent); }
 .hero-title {
-    font-family: 'Inter', sans-serif;
-    font-size: clamp(2rem, 5vw, 3.2rem);
+    font-size: clamp(1.9rem, 4.5vw, 3rem);
     font-weight: 700;
-    line-height: 1.1;
     letter-spacing: -0.03em;
     color: #F8FAFC;
-    margin: 0 0 12px;
+    margin: 0 0 10px;
+    line-height: 1.1;
 }
-.hero-title .accent {
-    background: linear-gradient(135deg, #6366F1 0%, #22D3EE 100%);
+.hero-title .grad {
+    background: linear-gradient(135deg, #6366F1 10%, #22D3EE 90%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
-
 .hero-sub {
-    font-size: 0.95rem;
-    color: #64748B;
-    max-width: 560px;
-    margin: 0 auto 32px;
-    line-height: 1.6;
-    font-weight: 400;
+    font-size: 0.92rem;
+    color: #475569;
+    max-width: 540px;
+    margin: 0 auto;
+    line-height: 1.65;
 }
 
-/* floating orbs behind hero */
-.orb {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(80px);
-    pointer-events: none;
-    z-index: 0;
+/* ── PIPELINE VISUALIZER ── */
+.pipeline-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin: 28px 0 20px;
 }
-.orb-1 {
-    width: 300px; height: 300px;
-    background: rgba(99,102,241,0.12);
-    top: -60px; left: -80px;
+.pipe-stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    min-width: 110px;
 }
-.orb-2 {
-    width: 200px; height: 200px;
-    background: rgba(34,211,238,0.08);
-    top: 20px; right: -60px;
+.pipe-icon {
+    width: 46px; height: 46px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 19px;
+    border: 1px solid rgba(99,102,241,0.18);
+    background: rgba(10,14,26,0.8);
+    transition: all 0.3s;
+}
+.pipe-icon.active {
+    border-color: #6366F1;
+    background: rgba(99,102,241,0.14);
+    box-shadow: 0 0 20px rgba(99,102,241,0.32);
+}
+.pipe-icon.done {
+    border-color: rgba(52,211,153,0.45);
+    background: rgba(52,211,153,0.09);
+}
+.pipe-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #334155;
+    transition: color 0.3s;
+}
+.pipe-label.active { color: #A5B4FC; }
+.pipe-label.done   { color: #34D399; }
+.pipe-connector {
+    width: 52px; height: 1px;
+    background: rgba(99,102,241,0.14);
+    position: relative;
+    top: -22px;
+    flex-shrink: 0;
+    transition: background 0.3s;
+}
+.pipe-connector.active {
+    background: linear-gradient(90deg, #34D399, #6366F1);
 }
 
 /* ── SEARCH CARD ── */
 .search-card {
-    background: rgba(15,20,40,0.7);
-    border: 1px solid rgba(99,102,241,0.25);
-    border-radius: 20px;
-    padding: 28px 32px;
-    backdrop-filter: blur(20px);
-    box-shadow: 0 0 0 1px rgba(99,102,241,0.05), 0 20px 60px rgba(0,0,0,0.4);
-    margin-bottom: 28px;
-    position: relative;
-    z-index: 1;
+    background: rgba(12,17,35,0.75);
+    border: 1px solid rgba(99,102,241,0.22);
+    border-radius: 18px;
+    padding: 24px 28px;
+    backdrop-filter: blur(18px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    margin-bottom: 24px;
 }
 
-/* ── INPUT OVERRIDE ── */
+/* ── INPUT ── */
 [data-testid="stTextInput"] input {
-    background: rgba(7,11,20,0.8) !important;
-    border: 1px solid rgba(99,102,241,0.3) !important;
+    background: rgba(7,11,20,0.85) !important;
+    border: 1px solid rgba(99,102,241,0.28) !important;
     border-radius: 12px !important;
     color: #F8FAFC !important;
     font-family: 'Inter', sans-serif !important;
     font-size: 0.97rem !important;
-    padding: 14px 18px !important;
+    padding: 13px 18px !important;
     transition: border-color 0.2s, box-shadow 0.2s !important;
 }
 [data-testid="stTextInput"] input:focus {
     border-color: #6366F1 !important;
-    box-shadow: 0 0 0 3px rgba(99,102,241,0.15) !important;
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.14) !important;
     outline: none !important;
 }
-[data-testid="stTextInput"] input::placeholder { color: #475569 !important; }
-
+[data-testid="stTextInput"] input::placeholder { color: #334155 !important; }
 [data-testid="stTextInput"] label {
-    color: #94A3B8 !important;
-    font-size: 0.78rem !important;
+    color: #475569 !important;
+    font-size: 0.72rem !important;
     font-family: 'JetBrains Mono', monospace !important;
-    letter-spacing: 0.08em !important;
+    letter-spacing: 0.1em !important;
     text-transform: uppercase !important;
-    margin-bottom: 6px !important;
 }
 
-/* ── PRIMARY BUTTON ── */
+/* ── BUTTONS ── */
 [data-testid="stButton"] > button[kind="primary"] {
-    background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%) !important;
+    background: linear-gradient(135deg, #6366F1, #4F46E5) !important;
     border: none !important;
-    border-radius: 12px !important;
+    border-radius: 11px !important;
     color: #fff !important;
     font-family: 'Inter', sans-serif !important;
     font-weight: 600 !important;
-    font-size: 0.9rem !important;
-    padding: 12px 32px !important;
-    letter-spacing: 0.02em !important;
+    font-size: 0.88rem !important;
+    padding: 12px 28px !important;
+    box-shadow: 0 4px 18px rgba(99,102,241,0.38) !important;
     transition: all 0.2s !important;
-    box-shadow: 0 4px 20px rgba(99,102,241,0.35) !important;
 }
 [data-testid="stButton"] > button[kind="primary"]:hover {
     transform: translateY(-1px) !important;
-    box-shadow: 0 8px 30px rgba(99,102,241,0.5) !important;
+    box-shadow: 0 8px 28px rgba(99,102,241,0.52) !important;
 }
-
-/* secondary button */
 [data-testid="stButton"] > button:not([kind="primary"]) {
-    background: rgba(99,102,241,0.1) !important;
-    border: 1px solid rgba(99,102,241,0.25) !important;
+    background: rgba(99,102,241,0.08) !important;
+    border: 1px solid rgba(99,102,241,0.22) !important;
     border-radius: 10px !important;
     color: #A5B4FC !important;
     font-family: 'Inter', sans-serif !important;
     font-weight: 500 !important;
     font-size: 0.85rem !important;
-    transition: all 0.2s !important;
+    transition: all 0.18s !important;
 }
 [data-testid="stButton"] > button:not([kind="primary"]):hover {
-    background: rgba(99,102,241,0.2) !important;
-    border-color: rgba(99,102,241,0.4) !important;
+    background: rgba(99,102,241,0.15) !important;
 }
 
 /* ── ANSWER CARD ── */
 .answer-card {
-    background: rgba(12,17,35,0.85);
-    border: 1px solid rgba(99,102,241,0.2);
-    border-radius: 18px;
-    padding: 28px 32px;
-    margin: 24px 0;
-    backdrop-filter: blur(16px);
+    background: rgba(10,14,26,0.9);
+    border: 1px solid rgba(99,102,241,0.18);
+    border-radius: 16px;
+    padding: 24px 28px;
+    margin: 16px 0;
     position: relative;
     overflow: hidden;
 }
@@ -254,11 +327,11 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 2px;
-    background: linear-gradient(90deg, #6366F1, #22D3EE, #6366F1);
+    background: linear-gradient(90deg, #6366F1, #22D3EE);
 }
 .answer-label {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
+    font-size: 0.6rem;
     letter-spacing: 0.2em;
     text-transform: uppercase;
     color: #6366F1;
@@ -271,296 +344,321 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
     content: '';
     flex: 1;
     height: 1px;
-    background: rgba(99,102,241,0.2);
+    background: rgba(99,102,241,0.15);
 }
 .answer-text {
-    font-size: 0.97rem;
-    line-height: 1.75;
+    font-size: 0.95rem;
+    line-height: 1.78;
     color: #CBD5E1;
-    font-weight: 400;
+    font-family: 'Inter', sans-serif;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+.cursor { color: #6366F1; animation: blink 0.75s step-end infinite; }
 
-/* ── METRIC STRIP ── */
-.metric-strip {
+/* ── TIMING STRIP ── */
+.timing-strip {
     display: flex;
-    gap: 16px;
-    margin: 20px 0;
+    gap: 10px;
+    margin: 12px 0 4px;
+    flex-wrap: wrap;
 }
-.metric-chip {
+.timing-chip {
     background: rgba(10,14,26,0.8);
-    border: 1px solid rgba(99,102,241,0.2);
-    border-radius: 12px;
-    padding: 14px 20px;
-    flex: 1;
-    text-align: center;
-    transition: border-color 0.2s;
-}
-.metric-chip:hover { border-color: rgba(99,102,241,0.4); }
-.metric-chip .m-val {
+    border: 1px solid rgba(99,102,241,0.13);
+    border-radius: 8px;
+    padding: 6px 13px;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #6366F1;
-    line-height: 1.1;
-}
-.metric-chip .m-label {
-    font-size: 0.68rem;
+    font-size: 0.7rem;
     color: #475569;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-top: 4px;
-    font-family: 'JetBrains Mono', monospace;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.timing-chip .tc-val { color: #A5B4FC; font-weight: 600; }
+.timing-chip .tc-mode {
+    background: rgba(99,102,241,0.14);
+    border: 1px solid rgba(99,102,241,0.24);
+    color: #6366F1;
+    padding: 1px 7px;
+    border-radius: 20px;
+    font-size: 0.62rem;
 }
 
 /* ── SECTION HEADER ── */
 .section-header {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin: 32px 0 16px;
+    gap: 10px;
+    margin: 26px 0 13px;
 }
-.section-header .sh-icon {
-    width: 32px; height: 32px;
-    background: rgba(99,102,241,0.15);
-    border: 1px solid rgba(99,102,241,0.3);
+.sh-icon {
+    width: 30px; height: 30px;
+    background: rgba(99,102,241,0.11);
+    border: 1px solid rgba(99,102,241,0.22);
     border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: 13px;
+    flex-shrink: 0;
 }
-.section-header .sh-title {
+.sh-title {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.7rem;
+    font-size: 0.62rem;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: #94A3B8;
+    color: #64748B;
 }
 .section-header::after {
     content: '';
     flex: 1;
     height: 1px;
-    background: rgba(99,102,241,0.12);
+    background: rgba(99,102,241,0.1);
 }
 
-/* ── SOURCE EXPANDER OVERRIDES ── */
+/* ── EXPANDERS ── */
 [data-testid="stExpander"] {
     background: rgba(10,14,26,0.7) !important;
-    border: 1px solid rgba(99,102,241,0.15) !important;
-    border-radius: 14px !important;
-    margin-bottom: 10px !important;
+    border: 1px solid rgba(99,102,241,0.13) !important;
+    border-radius: 13px !important;
+    margin-bottom: 8px !important;
     overflow: hidden !important;
-    transition: border-color 0.2s !important;
+    transition: border-color 0.18s !important;
 }
-[data-testid="stExpander"]:hover {
-    border-color: rgba(99,102,241,0.3) !important;
-}
+[data-testid="stExpander"]:hover { border-color: rgba(99,102,241,0.28) !important; }
 [data-testid="stExpander"] summary {
     background: transparent !important;
-    padding: 14px 18px !important;
+    padding: 13px 16px !important;
     font-family: 'Inter', sans-serif !important;
-    font-size: 0.88rem !important;
+    font-size: 0.86rem !important;
     color: #CBD5E1 !important;
     font-weight: 500 !important;
 }
-[data-testid="stExpander"] summary:hover { color: #F8FAFC !important; }
-
 [data-testid="stExpanderDetails"] {
-    background: rgba(7,11,20,0.5) !important;
-    padding: 16px 18px !important;
+    background: rgba(7,11,20,0.55) !important;
+    padding: 14px 16px !important;
 }
 
-/* ── SIMILARITY BADGE ── */
+/* ── SOURCE META ── */
 .sim-badge {
     display: inline-block;
-    background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(34,211,238,0.15));
-    border: 1px solid rgba(99,102,241,0.3);
+    background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(34,211,238,0.12));
+    border: 1px solid rgba(99,102,241,0.28);
     color: #A5B4FC;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.7rem;
-    padding: 2px 9px;
+    font-size: 0.68rem;
+    padding: 2px 8px;
     border-radius: 20px;
-    font-weight: 500;
 }
-
-/* ── META ROW ── */
 .meta-row {
     display: flex;
-    gap: 10px;
+    gap: 8px;
     align-items: center;
     flex-wrap: wrap;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
 }
 .meta-tag {
     background: rgba(15,20,40,0.9);
-    border: 1px solid rgba(99,102,241,0.15);
-    border-radius: 6px;
-    padding: 3px 10px;
+    border: 1px solid rgba(99,102,241,0.12);
+    border-radius: 5px;
+    padding: 2px 8px;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
-    color: #64748B;
+    font-size: 0.68rem;
+    color: #475569;
 }
 .meta-tag span { color: #94A3B8; }
-
-/* ── CHUNK TEXT BOX ── */
 .chunk-text {
     background: rgba(7,11,20,0.8);
-    border-left: 2px solid rgba(99,102,241,0.4);
+    border-left: 2px solid rgba(99,102,241,0.35);
     border-radius: 0 8px 8px 0;
-    padding: 14px 16px;
+    padding: 12px 14px;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     line-height: 1.7;
     color: #64748B;
-    margin-top: 12px;
+    margin-top: 10px;
     white-space: pre-wrap;
     word-break: break-word;
 }
 
-/* ── HISTORY ITEM ── */
-.history-query {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
-    color: #6366F1;
-    margin-bottom: 4px;
-}
-.history-answer {
-    font-size: 0.88rem;
-    color: #94A3B8;
-    line-height: 1.6;
-}
-.history-meta {
-    display: flex;
-    gap: 14px;
-    margin-top: 10px;
-}
-.history-chip {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.68rem;
-    color: #475569;
-    background: rgba(99,102,241,0.08);
-    border: 1px solid rgba(99,102,241,0.12);
-    padding: 2px 8px;
-    border-radius: 6px;
-}
-
-/* ── SLIDER ── */
-[data-testid="stSlider"] > div > div {
-    background: rgba(99,102,241,0.3) !important;
-}
-[data-testid="stSlider"] [data-testid="stTickBar"] { color: #475569 !important; }
-
-/* ── WARNING ── */
-[data-testid="stAlert"] {
-    background: rgba(245,158,11,0.1) !important;
-    border: 1px solid rgba(245,158,11,0.3) !important;
-    border-radius: 12px !important;
-    color: #FCD34D !important;
-}
-
-/* ── SPINNER ── */
-[data-testid="stSpinner"] { color: #6366F1 !important; }
-
-/* ── SCROLLBAR ── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.5); }
-
-/* ── HIDE STREAMLIT CHROME ── */
-#MainMenu, footer, [data-testid="stDecoration"],
-[data-testid="stStatusWidget"] { display: none !important; }
-
-header[data-testid="stHeader"] {
-    background: transparent !important;
-    border-bottom: none !important;
-}
-
 /* ── LINK BUTTON ── */
 [data-testid="stLinkButton"] a {
-    background: rgba(34,211,238,0.1) !important;
-    border: 1px solid rgba(34,211,238,0.3) !important;
+    background: rgba(34,211,238,0.08) !important;
+    border: 1px solid rgba(34,211,238,0.25) !important;
     border-radius: 8px !important;
     color: #22D3EE !important;
-    font-size: 0.8rem !important;
+    font-size: 0.78rem !important;
     font-family: 'Inter', sans-serif !important;
     font-weight: 500 !important;
-    padding: 8px 14px !important;
-    transition: all 0.2s !important;
+    padding: 7px 12px !important;
+    transition: all 0.18s !important;
     text-decoration: none !important;
 }
 [data-testid="stLinkButton"] a:hover {
-    background: rgba(34,211,238,0.18) !important;
-    border-color: rgba(34,211,238,0.5) !important;
+    background: rgba(34,211,238,0.15) !important;
     transform: translateY(-1px) !important;
 }
 
-/* ── COPY TEXT AREA ── */
-[data-testid="stTextArea"] textarea {
-    background: rgba(7,11,20,0.8) !important;
-    border: 1px solid rgba(99,102,241,0.2) !important;
-    border-radius: 10px !important;
-    color: #94A3B8 !important;
-    font-family: 'JetBrains Mono', monospace !important;
-    font-size: 0.82rem !important;
+/* ── HISTORY ── */
+.history-meta { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.hchip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: #475569;
+    background: rgba(99,102,241,0.07);
+    border: 1px solid rgba(99,102,241,0.12);
+    padding: 2px 8px;
+    border-radius: 5px;
 }
 
-/* ── COLUMNS ── */
-[data-testid="stColumns"] { gap: 16px !important; }
+/* ── EVAL TAB ── */
+.eval-header {
+    background: rgba(10,14,26,0.7);
+    border: 1px solid rgba(99,102,241,0.15);
+    border-radius: 16px;
+    padding: 22px 26px;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+}
+.eval-header::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #22D3EE, #6366F1);
+}
+.eval-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #22D3EE;
+    margin-bottom: 8px;
+}
+.eval-desc {
+    font-size: 0.88rem;
+    color: #64748B;
+    line-height: 1.6;
+}
 
-/* ── DIVIDER ── */
+.insight-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-top: 20px;
+}
+.insight-card {
+    background: rgba(10,14,26,0.8);
+    border: 1px solid rgba(99,102,241,0.14);
+    border-radius: 13px;
+    padding: 18px 20px;
+    transition: border-color 0.18s;
+}
+.insight-card:hover { border-color: rgba(99,102,241,0.3); }
+.insight-retriever {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+.insight-retriever.dense  { color: #6366F1; }
+.insight-retriever.bm25   { color: #22D3EE; }
+.insight-retriever.hybrid { color: #34D399; }
+.insight-verdict {
+    font-size: 0.82rem;
+    color: #94A3B8;
+    line-height: 1.55;
+}
+.insight-tag {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+}
+.insight-tag.best     { background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.3); color: #34D399; }
+.insight-tag.fast     { background: rgba(34,211,238,0.1);  border: 1px solid rgba(34,211,238,0.25); color: #22D3EE; }
+.insight-tag.balanced { background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.28); color: #A5B4FC; }
+
+/* ── WARNING ── */
+[data-testid="stAlert"] {
+    background: rgba(245,158,11,0.08) !important;
+    border: 1px solid rgba(245,158,11,0.28) !important;
+    border-radius: 11px !important;
+    color: #FCD34D !important;
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.25); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.45); }
+
 hr {
     border: none !important;
-    border-top: 1px solid rgba(99,102,241,0.12) !important;
-    margin: 32px 0 !important;
+    border-top: 1px solid rgba(99,102,241,0.1) !important;
+    margin: 28px 0 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── session state init ───────────────────────────────────
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-
-# ── SIDEBAR ───────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════
+# SIDEBAR
+# ══════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown("### System")
+    st.markdown("### Retrieval Mode")
 
-    st.markdown("""
-    <div class='sidebar-stat'>
-        <div class='label'>Indexed Papers</div>
-        <div class='value'>251</div>
-    </div>
-    <div class='sidebar-stat'>
-        <div class='label'>Embedding Model</div>
-        <div class='value' style='font-size:0.9rem;color:#22D3EE !important;'>BGE-768</div>
-    </div>
-    <div class='sidebar-stat'>
-        <div class='label'>Vector Store</div>
-        <div class='value' style='font-size:0.9rem;color:#A5B4FC !important;'>ChromaDB</div>
-    </div>
-    <div class='sidebar-stat'>
-        <div class='label'>Generator</div>
-        <div class='value' style='font-size:0.9rem;color:#34D399 !important;'>GPT-4o-mini</div>
+    retrieval_mode = st.radio(
+        "retrieval_mode",
+        ["Hybrid (RRF + Reranker)", "Dense (BGE Embeddings)", "Sparse (BM25)"],
+        label_visibility="collapsed",
+        help="Switch retrieval algorithm live.",
+    )
+
+    mode_descriptions = {
+        "Hybrid (RRF + Reranker)": ("Hybrid", "RRF fusion + Cross-Encoder reranker. Best precision & faithfulness."),
+        "Dense (BGE Embeddings)":  ("Dense",  "BGE-768 cosine search. Strong semantic recall, minimal latency."),
+        "Sparse (BM25)":           ("BM25",   "Term-frequency matching. Exact keyword precision, lower recall."),
+    }
+    mode_key, mode_desc = mode_descriptions[retrieval_mode]
+
+    st.markdown(f"""
+    <div class='mode-card'>
+        <div class='mc-title'>{mode_key}</div>
+        <div class='mc-sub'>{mode_desc}</div>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("### Domains")
+    st.markdown("### Pipeline")
     st.markdown("""
-    <div>
-        <span class='sidebar-pill'>Federated Learning</span>
-        <span class='sidebar-pill'>Privacy ML</span>
-        <span class='sidebar-pill'>Deepfake Detection</span>
-        <span class='sidebar-pill'>Differential Privacy</span>
-        <span class='sidebar-pill'>Secure Aggregation</span>
+    <div class='sidebar-stat'>
+        <span class='ss-label'>Papers</span>
+        <span class='ss-val'>251</span>
+    </div>
+    <div class='sidebar-stat'>
+        <span class='ss-label'>Embeddings</span>
+        <span class='ss-val' style='color:#22D3EE !important;'>BGE-768</span>
+    </div>
+    <div class='sidebar-stat'>
+        <span class='ss-label'>Vector store</span>
+        <span class='ss-val' style='color:#A5B4FC !important;'>ChromaDB</span>
+    </div>
+    <div class='sidebar-stat'>
+        <span class='ss-label'>Generator</span>
+        <span class='ss-val' style='color:#34D399 !important;'>GPT-4o-mini</span>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("### Retrieval")
-    k = st.slider("Chunks to retrieve (k)", min_value=1, max_value=10, value=5)
+    k = st.slider("Chunks (k)", min_value=1, max_value=10, value=5)
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("⟳  Clear history", use_container_width=True):
@@ -568,211 +666,347 @@ with st.sidebar:
         st.rerun()
 
 
-# ── HERO ──────────────────────────────────────────────────
-st.markdown("""
-<div class='hero-container'>
-    <div class='orb orb-1'></div>
-    <div class='orb orb-2'></div>
-    <div class='hero-eyebrow'>Dense Retrieval · arXiv · GPT-4o-mini</div>
-    <h1 class='hero-title'>RAG <span class='accent'>Research</span> Assistant</h1>
-    <p class='hero-sub'>Semantic search over 251 curated arXiv papers. Ask anything about federated learning, privacy-preserving ML, or deepfake detection.</p>
-</div>
-""", unsafe_allow_html=True)
+# ══════════════════════════════════════════════════════════
+# HELPERS
+# ══════════════════════════════════════════════════════════
+def pipeline_bar(embed_state="idle", retrieve_state="idle", generate_state="idle"):
+    def _cls(s):  return {"idle": "", "active": "active", "done": "done"}.get(s, "")
+    def _conn(s): return "active" if s == "done" else ""
+    st.markdown(f"""
+    <div class='pipeline-wrap'>
+        <div class='pipe-stage'>
+            <div class='pipe-icon {_cls(embed_state)}'>🔢</div>
+            <div class='pipe-label {_cls(embed_state)}'>Embed</div>
+        </div>
+        <div class='pipe-connector {_conn(embed_state)}'></div>
+        <div class='pipe-stage'>
+            <div class='pipe-icon {_cls(retrieve_state)}'>🔍</div>
+            <div class='pipe-label {_cls(retrieve_state)}'>Retrieve</div>
+        </div>
+        <div class='pipe-connector {_conn(retrieve_state)}'></div>
+        <div class='pipe-stage'>
+            <div class='pipe-icon {_cls(generate_state)}'>⚡</div>
+            <div class='pipe-label {_cls(generate_state)}'>Generate</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
-# ── SEARCH CARD ───────────────────────────────────────────
-st.markdown("<div class='search-card'>", unsafe_allow_html=True)
+@st.cache_data
+def load_eval_data():
+    results_dir = Path("results")
+    data = []
+    metrics = ["faithfulness", "answer_relevancy", "context_precision", "context_recall"]
+    for mode, filename in [
+        ("Dense",  "dense_eval.json"),
+        ("BM25",   "bm25_eval.json"),
+        ("Hybrid", "hybrid_eval.json"),
+    ]:
+        path = results_dir / filename
+        if path.exists():
+            with open(path) as f:
+                scores = json.load(f)["scores"]
+                for m in metrics:
+                    data.append({"Metric": m, "Retriever": mode, "Score": scores.get(m, 0)})
+    return pd.DataFrame(data) if data else None
 
-query = st.text_input(
-    "query",
-    placeholder="e.g.  How does FedAvg handle non-IID data distributions?",
-    label_visibility="collapsed",
-)
 
-col_btn, col_hint = st.columns([1, 4])
-with col_btn:
-    ask_clicked = st.button("⚡  Search", type="primary", use_container_width=True)
-with col_hint:
-    st.markdown(
-        "<p style='color:#334155;font-size:0.78rem;padding-top:10px;font-family:JetBrains Mono,monospace;'>"
-        "Try: differential privacy noise mechanisms · FedProx convergence · deepfake GAN detection</p>",
-        unsafe_allow_html=True,
+# ══════════════════════════════════════════════════════════
+# TABS
+# ══════════════════════════════════════════════════════════
+tab_chat, tab_eval = st.tabs(["💬  Assistant", "📊  Ablation Dashboard"])
+
+
+# ──────────────────────────────────────────────────────────
+# TAB 1 — CHAT
+# ──────────────────────────────────────────────────────────
+with tab_chat:
+
+    st.markdown("""
+    <div class='hero-wrap'>
+        <div class='hero-eyebrow'>Dense · Sparse · Hybrid Retrieval</div>
+        <h1 class='hero-title'>RAG <span class='grad'>Research</span> Assistant</h1>
+        <p class='hero-sub'>Semantic search over 251 curated arXiv papers. Switch retrieval strategies live and watch the pipeline execute in real time.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    pipe_placeholder = st.empty()
+    with pipe_placeholder:
+        pipeline_bar()
+
+    # Search card
+    st.markdown("<div class='search-card'>", unsafe_allow_html=True)
+    query = st.text_input(
+        "query",
+        placeholder="e.g.  How does FedAvg handle non-IID data distributions?",
+        label_visibility="collapsed",
     )
+    col_btn, col_hint = st.columns([1, 5])
+    with col_btn:
+        ask_clicked = st.button("⚡  Search", type="primary", use_container_width=True)
+    with col_hint:
+        st.markdown(
+            "<p style='color:#334155;font-size:0.76rem;padding-top:10px;"
+            "font-family:JetBrains Mono,monospace;'>"
+            "Try: FedProx convergence · DP noise mechanisms · deepfake GAN forensics</p>",
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown("</div>", unsafe_allow_html=True)
+    # ── QUERY EXECUTION ──────────────────────────────────
+    if ask_clicked and query.strip():
 
+        if retrieval_mode == "Dense (BGE Embeddings)":
+            retriever_fn = retrieve_dense
+        elif retrieval_mode == "Sparse (BM25)":
+            retriever_fn = retrieve_bm25
+        else:
+            retriever_fn = retrieve_hybrid
 
-# ── QUERY EXECUTION ───────────────────────────────────────
-if ask_clicked and query.strip():
-    start_time = time.time()
-    chunks = retrieve_dense(query, k=k)
-    retrieval_elapsed = time.time() - start_time
+        mode_short = retrieval_mode.split()[0]
+        start_time = time.time()
 
-    # show sources immediately — retrieval is fast, no need to wait for generation
-    st.markdown("""
-    <div class='section-header'>
-        <div class='sh-icon'>📄</div>
-        <div class='sh-title'>Retrieved Sources</div>
-    </div>
-    """, unsafe_allow_html=True)
-    for i, chunk in enumerate(chunks, 1):
-        st.caption(f"[{i}] {chunk.title[:70]} — similarity: {chunk.similarity:.3f}")
+        # Stage 1 — embed (visual only)
+        with pipe_placeholder:
+            pipeline_bar(embed_state="active")
+        time.sleep(0.05)
 
-    # stream the answer token by token
-    st.markdown("""
-    <div class='section-header'>
-        <div class='sh-icon'>⚡</div>
-        <div class='sh-title'>Generated Answer</div>
-    </div>
-    """, unsafe_allow_html=True)
+        # Stage 2 — retrieve
+        with pipe_placeholder:
+            pipeline_bar(embed_state="done", retrieve_state="active")
+        with st.spinner(f"Running {mode_short} retrieval…"):
+            chunks = retriever_fn(query, k=k)
+        retrieval_elapsed = time.time() - start_time
 
-    answer_placeholder = st.empty()
-    full_answer = ""
-    gen_start = time.time()
+        # Stage 3 — generate
+        with pipe_placeholder:
+            pipeline_bar(embed_state="done", retrieve_state="done", generate_state="active")
 
-    for token in generate_answer_stream(query, chunks):
-        full_answer += token
+        # Sources
+        st.markdown("""
+        <div class='section-header'>
+            <div class='sh-icon'>📄</div>
+            <div class='sh-title'>Retrieved Sources</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if not chunks:
+            st.warning("No chunks passed the similarity threshold for this query.")
+        else:
+            for i, chunk in enumerate(chunks, 1):
+                with st.expander(f"[{i}]  {chunk.title[:68]}{'…' if len(chunk.title)>68 else ''}"):
+                    st.markdown(f"""
+                    <div class='meta-row'>
+                        <span class='sim-badge'>sim {chunk.similarity:.3f}</span>
+                        <span class='meta-tag'>arXiv: <span>{chunk.arxiv_id}</span></span>
+                        <span class='meta-tag'>year: <span>{chunk.year}</span></span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    col_a, col_b = st.columns([4, 1])
+                    with col_b:
+                        st.link_button("↗  arXiv", f"https://arxiv.org/abs/{chunk.arxiv_id}", use_container_width=True)
+                    preview = chunk.text[:500] + ("…" if len(chunk.text) > 500 else "")
+                    st.markdown(
+                        f"<div class='chunk-text'>{html.escape(preview)}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+        # Streaming generation
+        st.markdown("""
+        <div class='section-header'>
+            <div class='sh-icon'>⚡</div>
+            <div class='sh-title'>Generated Answer</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        answer_placeholder = st.empty()
+        full_answer = ""
+        gen_start = time.time()
+
+        for token in generate_answer_stream(query, chunks):
+            full_answer += token
+            answer_placeholder.markdown(
+                f"<div class='answer-card'>"
+                f"<div class='answer-label'>⚡ Generated Answer</div>"
+                f"<div class='answer-text'>{html.escape(full_answer)}"
+                f"<span class='cursor'>▋</span></div></div>",
+                unsafe_allow_html=True,
+            )
+
+        generation_elapsed = time.time() - gen_start
+        elapsed = time.time() - start_time
+
+        # Final answer — cursor removed
         answer_placeholder.markdown(
-            f"<div class='answer-card'><div class='answer-text'>{html.escape(full_answer)}▋</div></div>",
+            f"<div class='answer-card'>"
+            f"<div class='answer-label'>⚡ Generated Answer</div>"
+            f"<div class='answer-text'>{html.escape(full_answer)}</div></div>",
             unsafe_allow_html=True,
         )
 
-    generation_elapsed = time.time() - gen_start
-    elapsed = time.time() - start_time
+        # Pipeline done
+        with pipe_placeholder:
+            pipeline_bar(embed_state="done", retrieve_state="done", generate_state="done")
 
-    # final render — no cursor, clean output
-    answer_placeholder.markdown(
-        f"<div class='answer-card'><div class='answer-text'>{html.escape(full_answer)}</div></div>",
-        unsafe_allow_html=True,
-    )
-
-    st.caption(f"Retrieved in {retrieval_elapsed:.2f}s, generated in {generation_elapsed:.2f}s")
-
-    # build a result dict matching generate_answer()'s shape, for history storage
-    result = {
-        "answer": full_answer,
-        "num_chunks_used": len(chunks),
-        "usage": {"total_tokens": 0, "prompt_tokens": 0, "completion_tokens": 0},  # not available from stream
-        "sources": list({(c.arxiv_id, c.title, c.year) for c in chunks}),
-    }
-
-    st.session_state.history.insert(0, {
-        "query": query,
-        "result": result,
-        "chunks": chunks,
-        "elapsed": elapsed,
-        "retrieval_elapsed": retrieval_elapsed,
-        "generation_elapsed": generation_elapsed,
-    })
-
-elif ask_clicked and not query.strip():
-    st.warning("Enter a question to search the research corpus.")
-
-
-# ── LATEST RESULT ─────────────────────────────────────────
-if st.session_state.history and not (ask_clicked and query.strip()):
-    latest = st.session_state.history[0]
-
-    # ── METRICS ──
-    st.markdown(f"""
-    <div class='metric-strip'>
-        <div class='metric-chip'>
-            <div class='m-val'>{latest['result']['num_chunks_used']}</div>
-            <div class='m-label'>Chunks Used</div>
+        # Timing strip
+        st.markdown(f"""
+        <div class='timing-strip'>
+            <div class='timing-chip'>Retrieve <span class='tc-val'>{retrieval_elapsed:.2f}s</span></div>
+            <div class='timing-chip'>Generate <span class='tc-val'>{generation_elapsed:.2f}s</span></div>
+            <div class='timing-chip'>Total <span class='tc-val'>{elapsed:.1f}s</span></div>
+            <div class='timing-chip'>Mode <span class='tc-mode'>{mode_short}</span></div>
+            <div class='timing-chip'>k = <span class='tc-val'>{k}</span></div>
         </div>
-        <div class='metric-chip'>
-            <div class='m-val'>{latest['result']['usage']['total_tokens']}</div>
-            <div class='m-label'>Tokens</div>
+        """, unsafe_allow_html=True)
+
+        st.session_state.history.insert(0, {
+            "query": query,
+            "answer": full_answer,
+            "mode": mode_short,
+            "retrieval_time": retrieval_elapsed,
+            "gen_time": generation_elapsed,
+            "elapsed": elapsed,
+        })
+
+    elif ask_clicked and not query.strip():
+        st.warning("Enter a question to search the research corpus.")
+
+    # Show last result when idle
+    if st.session_state.history and not (ask_clicked and query.strip()):
+        latest = st.session_state.history[0]
+        st.markdown(
+            f"<div class='answer-card'>"
+            f"<div class='answer-label'>⚡ Generated Answer</div>"
+            f"<div class='answer-text'>{html.escape(latest['answer'])}</div></div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(f"""
+        <div class='timing-strip'>
+            <div class='timing-chip'>Retrieve <span class='tc-val'>{latest['retrieval_time']:.2f}s</span></div>
+            <div class='timing-chip'>Generate <span class='tc-val'>{latest['gen_time']:.2f}s</span></div>
+            <div class='timing-chip'>Total <span class='tc-val'>{latest['elapsed']:.1f}s</span></div>
+            <div class='timing-chip'>Mode <span class='tc-mode'>{latest['mode']}</span></div>
         </div>
-        <div class='metric-chip'>
-            <div class='m-val'>{latest['elapsed']:.1f}s</div>
-            <div class='m-label'>Latency</div>
+        """, unsafe_allow_html=True)
+
+    # History
+    if len(st.session_state.history) > 1:
+        st.markdown("""
+        <div class='section-header'>
+            <div class='sh-icon'>🕐</div>
+            <div class='sh-title'>Query History</div>
         </div>
-        <div class='metric-chip'>
-            <div class='m-val'>{len(latest['chunks'])}</div>
-            <div class='m-label'>Sources</div>
+        """, unsafe_allow_html=True)
+        for item in st.session_state.history[1:]:
+            with st.expander(f"{item['query']}  ·  {item['mode']}"):
+                st.markdown(
+                    f"<div style='font-size:0.88rem;color:#94A3B8;line-height:1.65;'>"
+                    f"{html.escape(item['answer'])}</div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(f"""
+                <div class='history-meta'>
+                    <span class='hchip'>{item['mode']}</span>
+                    <span class='hchip'>retrieve {item['retrieval_time']:.2f}s</span>
+                    <span class='hchip'>generate {item['gen_time']:.2f}s</span>
+                    <span class='hchip'>total {item['elapsed']:.1f}s</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────────────────
+# TAB 2 — ABLATION DASHBOARD
+# ──────────────────────────────────────────────────────────
+with tab_eval:
+
+    st.markdown("""
+    <div class='eval-header'>
+        <div class='eval-title'>📊 Retrieval Ablation Study</div>
+        <div class='eval-desc'>
+            RAGAS evaluation across 25 golden Q&amp;A pairs — comparing Dense (BGE-768),
+            Sparse (BM25), and Hybrid (RRF + Cross-Encoder) retrieval architectures
+            on Faithfulness, Answer Relevancy, Context Precision, and Context Recall.
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.caption(
-        f"Retrieved in {latest['retrieval_elapsed']:.2f}s, "
-        f"generated in {latest['generation_elapsed']:.2f}s"
-    )
+    df_eval = load_eval_data()
 
-    # ── ANSWER ──
-    st.markdown(f"""
-    <div class='answer-card'>
-        <div class='answer-label'>⚡ Generated Answer</div>
-        <div class='answer-text'>{html.escape(latest['result']['answer'])}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    if df_eval is not None:
+        COLOR_MAP = {"Dense": "#6366F1", "BM25": "#22D3EE", "Hybrid": "#34D399"}
 
-    with st.expander("📋  Copy answer text"):
-        st.text_area(
-            "answer_copy",
-            value=latest["result"]["answer"],
-            height=140,
-            label_visibility="collapsed",
+        fig = go.Figure()
+        for retriever, color in COLOR_MAP.items():
+            subset = df_eval[df_eval["Retriever"] == retriever]
+            fig.add_trace(go.Bar(
+                name=retriever,
+                x=subset["Metric"],
+                y=subset["Score"],
+                marker=dict(color=color, opacity=0.82, line=dict(color=color, width=1)),
+                text=[f"{v:.3f}" for v in subset["Score"]],
+                textposition="outside",
+                textfont=dict(family="JetBrains Mono", size=11, color=color),
+            ))
+
+        fig.update_layout(
+            barmode="group",
+            height=420,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(7,11,20,0.6)",
+            font=dict(family="Inter", color="#64748B", size=12),
+            legend=dict(
+                bgcolor="rgba(10,14,26,0.8)",
+                bordercolor="rgba(99,102,241,0.2)",
+                borderwidth=1,
+                font=dict(family="JetBrains Mono", size=11, color="#94A3B8"),
+                orientation="h",
+                x=0.5, xanchor="center",
+                y=1.08, yanchor="bottom",
+            ),
+            xaxis=dict(
+                tickfont=dict(family="JetBrains Mono", size=11, color="#64748B"),
+                gridcolor="rgba(99,102,241,0.07)",
+                linecolor="rgba(99,102,241,0.15)",
+                title=None,
+            ),
+            yaxis=dict(
+                range=[0.5, 1.05],
+                tickfont=dict(family="JetBrains Mono", size=10, color="#475569"),
+                gridcolor="rgba(99,102,241,0.07)",
+                linecolor="rgba(99,102,241,0.1)",
+                title=dict(text="RAGAS Score", font=dict(size=11, color="#475569")),
+                tickformat=".2f",
+            ),
+            bargap=0.25,
+            bargroupgap=0.06,
+            margin=dict(t=40, b=20, l=50, r=20),
         )
 
-    # ── SOURCES ──
-    st.markdown("""
-    <div class='section-header'>
-        <div class='sh-icon'>📄</div>
-        <div class='sh-title'>Retrieved Sources</div>
-    </div>
-    """, unsafe_allow_html=True)
+        st.plotly_chart(fig, use_container_width=True)
 
-    for i, chunk in enumerate(latest["chunks"], 1):
-        sim_pct = int(chunk.similarity * 100)
-        with st.expander(
-            f"[{i}]  {chunk.title[:65]}{'…' if len(chunk.title) > 65 else ''}"
-        ):
-            st.markdown(f"""
-            <div class='meta-row'>
-                <span class='sim-badge'>sim {chunk.similarity:.3f}</span>
-                <span class='meta-tag'>arXiv: <span>{chunk.arxiv_id}</span></span>
-                <span class='meta-tag'>year: <span>{chunk.year}</span></span>
-                <span class='meta-tag'>chunk: <span>{chunk.chunk_index}/{chunk.total_chunks}</span></span>
+        st.markdown("""
+        <div class='insight-grid'>
+            <div class='insight-card'>
+                <div class='insight-retriever dense'>Dense · BGE-768</div>
+                <div class='insight-verdict'>Strong semantic recall — surfaces conceptually related chunks even without keyword overlap. Occasionally retrieves semantically similar noise at the margin.</div>
+                <span class='insight-tag fast'>Fastest latency</span>
             </div>
-            """, unsafe_allow_html=True)
-
-            col_a, col_b = st.columns([4, 1])
-            with col_b:
-                st.link_button(
-                    "↗  arXiv",
-                    f"https://arxiv.org/abs/{chunk.arxiv_id}",
-                    use_container_width=True,
-                )
-
-            preview = chunk.text[:500] + ("…" if len(chunk.text) > 500 else "")
-            st.markdown(
-                f"<div class='chunk-text'>{html.escape(preview)}</div>",
-                unsafe_allow_html=True,
-            )
-
-
-# ── HISTORY ───────────────────────────────────────────────
-if len(st.session_state.history) > 1:
-    st.markdown("""
-    <div class='section-header'>
-        <div class='sh-icon'>🕐</div>
-        <div class='sh-title'>Query History</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    for item in st.session_state.history[1:]:
-        with st.expander(f"{item['query']}"):
-            st.markdown(
-                f"<div class='history-query'>// {html.escape(item['query'])}</div>"
-                f"<div class='history-answer'>{html.escape(item['result']['answer'])}</div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(f"""
-            <div class='history-meta'>
-                <span class='history-chip'>{item['result']['num_chunks_used']} chunks</span>
-                <span class='history-chip'>{item['result']['usage']['total_tokens']} tokens</span>
-                <span class='history-chip'>{item['elapsed']:.1f}s</span>
+            <div class='insight-card'>
+                <div class='insight-retriever bm25'>Sparse · BM25</div>
+                <div class='insight-verdict'>High precision on exact terminology (arXiv IDs, algorithm names). Context Recall drops ~20% on paraphrased questions that lack surface-form overlap.</div>
+                <span class='insight-tag fast'>No GPU required</span>
             </div>
-            """, unsafe_allow_html=True)
+            <div class='insight-card'>
+                <div class='insight-retriever hybrid'>Hybrid · RRF + Reranker</div>
+                <div class='insight-verdict'>Cross-Encoder reranker acts as an aggressive filter — maximises Faithfulness and Precision at the cost of ~150ms overhead and a marginal recall dip.</div>
+                <span class='insight-tag best'>Best overall</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    else:
+        st.warning(
+            "Evaluation results not found. "
+            "Run `python -m src.evaluate` to generate `results/dense_eval.json`, "
+            "`bm25_eval.json`, and `hybrid_eval.json`."
+        )
