@@ -50,7 +50,38 @@ STRICT GUARDRAILS:
 INSTRUCTIONS:
 - Always use the search tool to gather context before answering factual or technical questions.
 - If the user's question is complex, use the tool multiple times to gather different pieces of information before synthesizing your final answer."""
+# ── 3b. Classification & Decomposition (for UI display only) ───────
+import json
 
+def classify_query(question: str) -> str:
+    """Classify a question as 'simple' (single-source) or 'complex' (multi-hop)."""
+    classifier_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    prompt = f"""Is this question simple (answerable from a single source) or complex (requires synthesising multiple sources)?
+Answer with exactly one word: simple or complex.
+
+Question: {question}
+Answer:"""
+    result = classifier_llm.invoke(prompt)
+    answer = result.content.strip().lower()
+    return "complex" if "complex" in answer else "simple"
+
+
+def decompose_query(question: str) -> list[str]:
+    """Break a complex question into 2-4 answerable sub-questions."""
+    decomposer_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    prompt = f"""Break this complex research question into 2-4 simpler sub-questions that can each be answered from a single paper. Return ONLY a JSON array of strings, nothing else — no markdown, no explanation.
+
+Question: {question}"""
+    result = decomposer_llm.invoke(prompt)
+    raw = result.content.strip().strip("```json").strip("```").strip()
+    try:
+        sub_qs = json.loads(raw)
+        if isinstance(sub_qs, list) and all(isinstance(q, str) for q in sub_qs):
+            return sub_qs
+    except Exception:
+        pass
+    # fallback if the model didn't return clean JSON
+    return [line.strip("-• ") for line in raw.split("\n") if line.strip()][:4]
 # ── 4. Create the LangGraph Agent ───────────────────────────────────
 # Removed the strict kwargs to avoid version conflicts!
 research_agent = create_react_agent(llm, tools)

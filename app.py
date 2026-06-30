@@ -5,11 +5,14 @@ import html
 from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
+from src.agent import research_agent, system_prompt, classify_query, decompose_query
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langsmith import Client
+from langchain_core.tracers.context import collect_runs
 
 from src.retrieve import retrieve_dense, retrieve_bm25, retrieve_hybrid
 from src.generate import generate_answer_stream
-from src.agent import research_agent, system_prompt
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+
 
 # ── page config ───────────────────────────────────────────
 st.set_page_config(
@@ -264,7 +267,22 @@ header[data-testid="stHeader"] {
     font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: #C4B5FD;
     margin-left: 8px;
 }
-
+.routing-banner {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.72rem;
+    padding: 8px 14px; border-radius: 10px; margin-bottom: 14px;
+    border: 1px solid rgba(167,139,250,0.25); background: rgba(167,139,250,0.06); color: #C4B5FD;
+}
+.routing-banner.simple { border-color: rgba(34,211,238,0.25); background: rgba(34,211,238,0.05); color: #22D3EE; }
+.subq-wrap {
+    background: rgba(167,139,250,0.04); border: 1px solid rgba(167,139,250,0.15);
+    border-radius: 12px; padding: 14px 16px; margin-bottom: 14px;
+}
+.subq-label {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.65rem;
+    letter-spacing: 0.1em; text-transform: uppercase; color: #A78BFA; margin-bottom: 8px;
+}
+.subq-row { font-size: 0.84rem; color: #CBD5E1; padding: 5px 0; display: flex; gap: 8px; }
+.subq-num { font-family: 'JetBrains Mono', monospace; color: #6366F1; font-weight: 600; flex-shrink: 0; }
 /* ── SEARCH CARD ── */
 .search-card {
     background: rgba(12,17,35,0.75); border: 1px solid rgba(99,102,241,0.22);
@@ -673,6 +691,32 @@ with tab_chat:
             with pipe_placeholder:
                 agent_loop_bar(plan_state="active")
 
+            # ── NEW: routing decision + sub-questions ──
+            classification = classify_query(query)
+            is_complex = classification == "complex"
+
+            st.markdown(f"""
+            <div class='routing-banner {'complex' if is_complex else 'simple'}'>
+                Query classified as: <strong>{classification}</strong>
+                {' → decomposing into sub-questions' if is_complex else ' → answering directly'}
+            </div>
+            """, unsafe_allow_html=True)
+
+            sub_questions = []
+            if is_complex:
+                sub_questions = decompose_query(query)
+                subq_html = "".join(
+                    f"<div class='subq-row'><span class='subq-num'>{i+1}</span>{html.escape(q)}</div>"
+                    for i, q in enumerate(sub_questions)
+                )
+                st.markdown(f"""
+                <div class='subq-wrap'>
+                    <div class='subq-label'>🧩 Breaking into {len(sub_questions)} sub-questions</div>
+                    {subq_html}
+                </div>
+                """, unsafe_allow_html=True)
+            
+
             # Collect trace rows as agent runs
             trace_rows = []
 
@@ -700,13 +744,24 @@ with tab_chat:
             with pipe_placeholder:
                 agent_loop_bar(plan_state="done", search_state="active")
 
-            # Run agent
-            response = research_agent.invoke({
-                "messages": [
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=query),
-                ]
-            })
+            
+            # Run agent (wrapped to capture the LangSmith run for the trace link)
+            ls_client = Client()
+            with collect_runs() as run_collector:
+                response = research_agent.invoke({
+                    "messages": [
+                        SystemMessage(content=system_prompt),
+                        HumanMessage(content=query),
+                    ]
+                })
+
+            trace_url = None
+            if run_collector.traced_runs:
+                run_id = run_collector.traced_runs[0].id
+                try:
+                    trace_url = ls_client.share_run(run_id)
+                except Exception:
+                    trace_url = None
 
             with pipe_placeholder:
                 agent_loop_bar(plan_state="done", search_state="done", reason_state="active")
@@ -759,6 +814,10 @@ with tab_chat:
                 unsafe_allow_html=True,
             )
             full_answer = final_answer
+            if trace_url:
+                st.link_button("🔗  View trace →", trace_url, use_container_width=False)
+            else:
+                st.caption("Trace not available — check LANGCHAIN_TRACING_V2 is set to true.")
 
         # ── STANDARD PIPELINE PATH ────────────────────────
         else:
