@@ -12,3 +12,5 @@ logs/
 data/parsed/
 data/parsed/
 data/bm25_index.pkl
+notebooks/.ipynb_checkpoints/
+**/.ipynb_checkpoints/
