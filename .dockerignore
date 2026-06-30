@@ -1,0 +1,15 @@
+venv/
+.venv/
+data/papers/
+data/chroma_db/
+data/software_docs/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.DS_Store
+results/
+notebooks/.ipynb_checkpoints/
+.streamlit/
+*.ipynb_checkpoints
+.env

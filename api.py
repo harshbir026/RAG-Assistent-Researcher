@@ -9,6 +9,10 @@ from src.retrieve import retrieve_dense
 from src.generate import generate_answer_stream, build_context_block
 
 
+from src.agent import research_agent, system_prompt, classify_query, decompose_query
+from langchain_core.messages import HumanMessage, SystemMessage
+
+
 # ── OpenAPI metadata ──────────────────────────────────────────────────────────
 app = FastAPI(
     title="RAG Research Assistant",
@@ -798,3 +802,38 @@ async def query_endpoint(request: QueryRequest):
             "X-Accel-Buffering": "no",
         },
     )
+class AgentQueryRequest(BaseModel):
+    question: str
+
+
+@app.post("/query/agent")
+def query_agent(request: AgentQueryRequest):
+    start = time.time()
+
+    classification = classify_query(request.question)
+    sub_questions = decompose_query(request.question) if classification == "complex" else []
+
+    response = research_agent.invoke({
+        "messages": [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=request.question),
+        ]
+    })
+
+    final_answer = response["messages"][-1].content
+
+    sources = [
+        str(msg.content)[:300]
+        for msg in response["messages"]
+        if getattr(msg, "name", "") == "search_research_papers"
+    ]
+
+    latency_ms = round((time.time() - start) * 1000, 1)
+
+    return {
+        "answer": final_answer,
+        "routing_decision": classification,
+        "sub_questions": sub_questions,
+        "sources": sources,
+        "latency_ms": latency_ms,
+    }
