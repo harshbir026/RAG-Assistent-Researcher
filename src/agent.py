@@ -85,6 +85,7 @@ Question: {question}"""
 # ── 4. Create the LangGraph Agent ───────────────────────────────────
 # Removed the strict kwargs to avoid version conflicts!
 research_agent = create_react_agent(llm, tools)
+research_agent = research_agent.with_config({"recursion_limit": 8})
 
 if __name__ == "__main__":
     print("🤖 Initializing ReAct Agent...")

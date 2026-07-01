@@ -692,29 +692,42 @@ with tab_chat:
                 agent_loop_bar(plan_state="active")
 
             # ── NEW: routing decision + sub-questions ──
-            classification = classify_query(query)
+            # ── NEW: routing decision + sub-questions (fail-safe) ──
+            classification_failed = False
+            try:
+                classification = classify_query(query)
+            except Exception as e:
+                classification_failed = True
+                classification = "unknown"
+                st.warning(f"⚠️ Classification failed ({type(e).__name__}) — skipping routing display, agent will still attempt to answer.")
+
             is_complex = classification == "complex"
 
-            st.markdown(f"""
-            <div class='routing-banner {'complex' if is_complex else 'simple'}'>
-                Query classified as: <strong>{classification}</strong>
-                {' → decomposing into sub-questions' if is_complex else ' → answering directly'}
-            </div>
-            """, unsafe_allow_html=True)
-
-            sub_questions = []
-            if is_complex:
-                sub_questions = decompose_query(query)
-                subq_html = "".join(
-                    f"<div class='subq-row'><span class='subq-num'>{i+1}</span>{html.escape(q)}</div>"
-                    for i, q in enumerate(sub_questions)
-                )
+            if not classification_failed:
                 st.markdown(f"""
-                <div class='subq-wrap'>
-                    <div class='subq-label'>🧩 Breaking into {len(sub_questions)} sub-questions</div>
-                    {subq_html}
+                <div class='routing-banner {'complex' if is_complex else 'simple'}'>
+                    Query classified as: <strong>{classification}</strong>
+                    {' → decomposing into sub-questions' if is_complex else ' → answering directly'}
                 </div>
                 """, unsafe_allow_html=True)
+
+            sub_questions = []
+            if is_complex and not classification_failed:
+                try:
+                    sub_questions = decompose_query(query)
+                    subq_html = "".join(
+                        f"<div class='subq-row'><span class='subq-num'>{i+1}</span>{html.escape(q)}</div>"
+                        for i, q in enumerate(sub_questions)
+                    )
+                    st.markdown(f"""
+                    <div class='subq-wrap'>
+                        <div class='subq-label'>🧩 Breaking into {len(sub_questions)} sub-questions</div>
+                        {subq_html}
+                    </div>
+                    """, unsafe_allow_html=True)
+                except Exception as e:
+                    st.warning(f"⚠️ Decomposition failed ({type(e).__name__}) — proceeding without sub-question breakdown.")
+            # ── END NEW ──
             
 
             # Collect trace rows as agent runs
@@ -747,16 +760,29 @@ with tab_chat:
             
             # Run agent (wrapped to capture the LangSmith run for the trace link)
             ls_client = Client()
-            with collect_runs() as run_collector:
-                response = research_agent.invoke({
-                    "messages": [
-                        SystemMessage(content=system_prompt),
-                        HumanMessage(content=query),
-                    ]
-                })
+            agent_failed = False
+            try:
+                with collect_runs() as run_collector:
+                    response = research_agent.invoke({
+                        "messages": [
+                            SystemMessage(content=system_prompt),
+                            HumanMessage(content=query),
+                        ]
+                    })
+            except Exception as e:
+                agent_failed = True
+                st.warning(f"⚠️ Agent failed ({type(e).__name__}) — falling back to direct hybrid retrieval.")
+                try:
+                    fallback_chunks = retrieve_hybrid(query, k=5)
+                    fallback_answer = "".join(generate_answer_stream(query, fallback_chunks))
+                    response = {"messages": [HumanMessage(content=fallback_answer)]}
+                    run_collector = None
+                except Exception as e2:
+                    st.error(f"⚠️ Service temporarily unavailable ({type(e2).__name__}). Please check your connection and try again in a moment.")
+                    st.stop()
 
             trace_url = None
-            if run_collector.traced_runs:
+            if run_collector and run_collector.traced_runs:
                 run_id = run_collector.traced_runs[0].id
                 try:
                     trace_url = ls_client.share_run(run_id)
