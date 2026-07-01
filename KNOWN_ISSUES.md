@@ -1,1 +1,2 @@
 - Agent gives inconsistent year/citation for 'When was FedAvg introduced?' across repeated runs — original FedAvg paper (1602.05629) may not be well-indexed in corpus. Investigate retrieval coverage for foundational/citation-heavy queries.
+- create_react_agent import will break on LangGraph V2.0 — migrate to 'from langchain.agents import create_agent' before upgrading langgraph past current pinned version.
