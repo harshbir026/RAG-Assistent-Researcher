@@ -25,7 +25,11 @@ jobs:
       - name: Lint with ruff
         run: ruff check . || true
 
+# test_hybrid.py and test_reranker.py require a populated ChromaDB collection,
+      # which isn't available in a fresh CI checkout (data/chroma_db/ is gitignored).
+      # They run locally against the real 251-paper corpus but are excluded from CI.
+      # TODO: build a small fixture corpus (5-10 papers) for CI-only integration tests.
       - name: Run tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: pytest tests/ -v --tb=short
+        run: pytest tests/ -v --tb=short --ignore=tests/test_hybrid.py --ignore=tests/test_reranker.py
