@@ -2,7 +2,7 @@ import pytest
 from src.retrieve import retrieve_dense, QueryValidationError
 from src.retrieve import retrieve_dense, retrieve_bm25, QueryValidationError
 
-
+@pytest.mark.requires_chromadb
 def test_fedavg_dense_retrieval():
     """A well-known FL term should retrieve relevant chunks mentioning it."""
     results = retrieve_dense("What is FedAvg?", k=3)
@@ -10,7 +10,7 @@ def test_fedavg_dense_retrieval():
     combined = " ".join([r.text for r in results]).lower()
     assert any(w in combined for w in ["fedavg", "federated averaging", "mcmahan"])
 
-
+@pytest.mark.requires_chromadb
 def test_retrieval_returns_typed_chunks():
     """Results should be RetrievedChunk objects with expected fields, not raw dicts."""
     results = retrieve_dense("differential privacy epsilon", k=3)
@@ -21,7 +21,7 @@ def test_retrieval_returns_typed_chunks():
         assert hasattr(r, "arxiv_id")
         assert 0 <= r.similarity <= 1
 
-
+@pytest.mark.requires_chromadb
 def test_off_topic_query_returns_few_or_no_results():
     """An unrelated query should be filtered out by the similarity threshold."""
     results = retrieve_dense("best pizza recipes in Italy", k=5)
