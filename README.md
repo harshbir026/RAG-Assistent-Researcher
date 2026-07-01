@@ -1,3 +1,4 @@
+![CI](https://github.com/harshbir026/RAG-Assistent-Researcher/actions/workflows/ci.yml/badge.svg)
 ## Known Limitations
 
 - **Title/abstract extraction accuracy (~80%)**: Some PDFs have inconsistent
@@ -41,3 +42,14 @@ However, trace analysis exposed two core systemic vulnerabilities:
 2. **Legacy Chunk Boundary Splits:** Phase 1 chunking issues were laid bare in the trace history. Fixed-size chunk partitions frequently truncated algorithmic updates and mathematical proofs across boundary lines. In the traces, this was visible as the agent receiving partial math expressions and attempting to reconstruct the underlying logic, increasing latency and slightly lowering faithfulness. 
 
 This trace evidence directly informed our transition to a recursive, syntax-aware splitting mechanism to preserve technical continuity.
+
+
+
+
+
+
+
+
+
+
+  
