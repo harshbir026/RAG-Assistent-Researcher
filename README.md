@@ -1,4 +1,5 @@
 ![CI](https://github.com/harshbir026/RAG-Assistent-Researcher/actions/workflows/ci.yml/badge.svg)
+
 ## Known Limitations
 
 - **Title/abstract extraction accuracy (~80%)**: Some PDFs have inconsistent
@@ -22,6 +23,13 @@
   via system prompt instructions and measured via RAGAS (0.93 faithfulness
   on the golden set), but there is no independent verification layer
   checking generated claims against retrieved text.
+  - **Foundational paper coverage gap (identified and fixed Day 35)**: The
+  original FedAvg paper (McMahan et al., arXiv:1602.05629) was absent from
+  the initial 251-paper corpus — only papers citing it were ingested. This
+  caused citation instability on questions about FedAvg's origin (the agent
+  would cite whichever citing paper ranked highest, varying run to run).
+  Root cause confirmed via retrieval inspection and grep verification, then
+  fixed by adding the source paper directly to the corpus.
 
   ## 📊 Retrieval Ablation Study
 To determine the optimal retrieval architecture, I evaluated three strategies against a 25-question golden dataset using the **RAGAS** framework. 
