@@ -16,10 +16,12 @@ short_description: Agentic RAG over federated learning papers and software docs
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o--mini-412991?style=flat-square&logo=openai)
 ![RAGAS](https://img.shields.io/badge/Eval-RAGAS-8A2BE2?style=flat-square)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker)
-![CI](https://github.com/harshbir026/rag-research-assistant/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/harshbir026/RAG-Assistent-Researcher/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 
 # ResearchMind — Agentic RAG Research Assistant
+
+🔗 **Live Demo:** [https://rag-assistent-researcher.streamlit.app](https://rag-assistent-researcher.streamlit.app) (Streamlit Community Cloud; confirm the slug if you renamed the app)
 
 A retrieval-augmented research assistant over **251 arXiv papers (10,715 chunks)**
 spanning federated learning, privacy-preserving ML, and deepfake detection. The
@@ -116,8 +118,8 @@ hand-verified, 25-question golden set using RAGAS, and fully traced with LangSmi
 ### Local
 
 ```bash
-git clone https://github.com/harshbir026/rag-research-assistant
-cd rag-research-assistant
+git clone https://github.com/harshbir026/RAG-Assistent-Researcher
+cd RAG-Assistent-Researcher
 python3.11 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env  # add your API keys
@@ -189,7 +191,7 @@ Both services share a volume-mounted `./data` directory. `.dockerignore` exclude
 | UI | Streamlit | Custom dark theme, live token streaming via `st.empty()`, agent routing/sub-question transparency, one-click LangSmith trace links |
 | Testing | pytest + pytest-mock | 12 tests total; 5 marked `requires_chromadb` (skipped in CI, pass locally), 7 run in CI |
 | CI | GitHub Actions | ruff lint + pytest on every push — took 4 real iterations to get green |
-| Deployment | Docker Compose, Hugging Face Spaces (Docker SDK) | Reproducible locally; Space metadata is in this README. Go live by creating a Space from the GitHub repo and adding secrets (see [Deploy](#deploy)) |
+| Deployment | Streamlit Community Cloud (live), Docker Compose locally | Index is gitignored; Cloud downloads `Harshbirr/researchmind-index` on first boot. Hugging Face Docker Spaces need a paid plan — do not use them for this demo |
 
 ---
 
@@ -468,13 +470,15 @@ weekend demo:
 
 ### Live demo (free) — Streamlit Community Cloud
 
+**Live:** [https://rag-assistent-researcher.streamlit.app](https://rag-assistent-researcher.streamlit.app)
+
 Hugging Face **Docker and Gradio Spaces now require a paid plan**. Static Spaces cannot run this Python app. Do **not** buy PRO just for this. Use the same free host as CIPHER: [share.streamlit.io](https://share.streamlit.io).
 
-The index is already uploaded as dataset `Harshbirr/researchmind-index`. The app downloads it on first boot if `data/chroma_db` is missing.
+The index is uploaded as dataset `Harshbirr/researchmind-index`. The app downloads it on first boot if `data/chroma_db` is missing.
 
-1. Push the latest `app.py` (index download on startup) to GitHub if it is not there yet.
+1. Push `main` to GitHub (`harshbir026/RAG-Assistent-Researcher`).
 2. Open [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
-3. **Create app** → repo `harshbir026/rag-research-assistant` → branch `main` → main file `app.py`.
+3. **Create app** → repo `harshbir026/RAG-Assistent-Researcher` → branch `main` → main file `app.py`.
 4. **Manage app → Settings → Secrets** (top-level TOML keys, not nested tables):
 
 ```toml
@@ -485,16 +489,16 @@ INDEX_DATASET = "Harshbirr/researchmind-index"
 
 `ChatOpenAI` reads `OPENAI_API_KEY` from the environment. The app copies Streamlit secrets into `os.environ` before that client is created. If you deployed before adding secrets, save them and **reboot**.
 
-5. Deploy. First boot is slow (BGE ~440MB + index ~230MB). URL looks like `https://<name>.streamlit.app`.
-6. Ask a FedAvg question, then switch corpus to software docs.
+5. First boot is slow (BGE ~440MB + index ~230MB).
+6. Verify: FedAvg on the research corpus, then a FastAPI/HTTP question on software docs.
 
-If pip fails on the huge `requirements.txt`, say so and we can switch the Cloud app to `requirements-space.txt`.
+If pip fails on the huge `requirements.txt`, switch the Cloud app to `requirements-space.txt`.
 
 Skip **Static** on the Hugging Face create screen. HF Docker is only worth it if you later subscribe to PRO.
 
-Until the Streamlit URL loads an answer, do not put a demo link on a resume.
+### Resume bullet (real RAGAS numbers)
 
-GitHub: https://github.com/harshbir026/rag-research-assistant
+Built a domain-agnostic RAG research assistant over 251 arXiv papers (federated learning, privacy ML, deepfakes) plus a software-docs generalization corpus; hybrid retrieval (BM25 + BGE + FlashRank, RRF k=60) reached 0.954 faithfulness on a 25-question golden eval (vs 0.933 dense-only); LangGraph ReAct agent handles multi-hop questions; FastAPI SSE + Streamlit.
 
 ---
 
