@@ -23,6 +23,28 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Streamlit Cloud (and similar hosts) clone git without chroma_db.
+# Local checkouts that already have data/chroma_db skip this instantly.
+@st.cache_resource
+def _ensure_retrieval_index() -> bool:
+    marker = Path("data/chroma_db/chroma.sqlite3")
+    if marker.exists():
+        return True
+    from scripts.fetch_space_index import main as fetch_index
+    fetch_index()
+    return marker.exists()
+
+
+try:
+    _ensure_retrieval_index()
+except Exception as exc:
+    st.error(
+        "Retrieval index is missing. On Streamlit Cloud, set secrets "
+        "`HF_TOKEN` and `INDEX_DATASET=Harshbirr/researchmind-index`. "
+        f"Details: {exc}"
+    )
+    st.stop()
+
 # ── session state ─────────────────────────────────────────
 if "history" not in st.session_state:
     st.session_state.history = []

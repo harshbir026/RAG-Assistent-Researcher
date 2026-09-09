@@ -466,24 +466,31 @@ weekend demo:
 
 ## Deploy
 
-### Hugging Face Spaces
+### Live demo (free) — Streamlit Community Cloud
 
-This repo is already a Docker Space (`sdk: docker`, port 8501). To publish it:
+Hugging Face **Docker and Gradio Spaces now require a paid plan**. Static Spaces cannot run this Python app. Do **not** buy PRO just for this. Use the same free host as CIPHER: [share.streamlit.io](https://share.streamlit.io).
 
-1. [Create a Space](https://huggingface.co/new-space) → Docker → connect `harshbir026/rag-research-assistant`.
-2. Space secrets (Settings → Variables and secrets):
+The index is already uploaded as dataset `Harshbirr/researchmind-index`. The app downloads it on first boot if `data/chroma_db` is missing.
 
-   | Secret | Value |
-   |---|---|
-   | `OPENAI_API_KEY` | required |
-   | `LANGCHAIN_API_KEY` | optional |
-   | `LANGCHAIN_TRACING_V2` | `true` if tracing |
-   | `LANGCHAIN_PROJECT` | `rag-research-assistant` |
+1. Push the latest `app.py` (index download on startup) to GitHub if it is not there yet.
+2. Open [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
+3. **Create app** → repo `harshbir026/rag-research-assistant` → branch `main` → main file `app.py`.
+4. **Advanced settings → Secrets**:
 
-3. Upload or persist `data/chroma_db/` from a machine that has the 251-paper index (it is gitignored; a Spaces clone has no vectors without this step). The software-docs notes in `data/software_docs/` ship with git and can be re-chunked/embedded on first boot if you only need the secondary corpus.
-4. Hardware: CPU is enough; first start downloads BGE (~440MB).
+```toml
+OPENAI_API_KEY = "sk-..."
+HF_TOKEN = "hf_..."
+INDEX_DATASET = "Harshbirr/researchmind-index"
+```
 
-Until those secrets and the Chroma snapshot are on the Space, there is **no public live URL** — do not put a fake one on a resume.
+5. Deploy. First boot is slow (BGE ~440MB + index ~230MB). URL looks like `https://<name>.streamlit.app`.
+6. Ask a FedAvg question, then switch corpus to software docs.
+
+If pip fails on the huge `requirements.txt`, say so and we can switch the Cloud app to `requirements-space.txt`.
+
+Skip **Static** on the Hugging Face create screen. HF Docker is only worth it if you later subscribe to PRO.
+
+Until the Streamlit URL loads an answer, do not put a demo link on a resume.
 
 ### Resume bullet (real RAGAS numbers)
 
