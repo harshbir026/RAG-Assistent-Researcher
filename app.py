@@ -1,27 +1,74 @@
-import streamlit as st
+import os
 import time
 import json
 import html
 from pathlib import Path
-import pandas as pd
-import plotly.graph_objects as go
-from src.agent import research_agent, system_prompt, classify_query, decompose_query, active_corpus
-from src.corpus_config import DEFAULT_CORPUS
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
-from langsmith import Client
-from langchain_core.tracers.context import collect_runs
 
-from src.retrieve import retrieve_dense, retrieve_bm25, retrieve_hybrid
-from src.generate import generate_answer_stream
+import streamlit as st
+from dotenv import load_dotenv
 
+load_dotenv()
 
-# ── page config ───────────────────────────────────────────
+# ── page config must be the first Streamlit command ───────
 st.set_page_config(
     page_title="RAG Research Assistant",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+
+def _export_streamlit_secrets() -> None:
+    """Copy Streamlit Cloud secrets into os.environ.
+
+    Community Cloud stores keys in st.secrets. ChatOpenAI / OpenAI() only
+    read OPENAI_API_KEY from the process environment, and that copy often
+    has not happened yet when src.agent is imported at module load.
+    """
+    try:
+        secrets = st.secrets
+    except Exception:
+        return
+
+    def _flatten(mapping) -> None:
+        for key, value in mapping.items():
+            if hasattr(value, "items") and not isinstance(value, str):
+                _flatten(value)
+            elif isinstance(value, (str, int, float, bool)):
+                env_key = str(key)
+                if not os.environ.get(env_key):
+                    os.environ[env_key] = str(value)
+
+    try:
+        _flatten(secrets)
+    except Exception:
+        return
+
+
+_export_streamlit_secrets()
+
+if not os.getenv("OPENAI_API_KEY"):
+    st.error(
+        "OPENAI_API_KEY is missing. In Streamlit Cloud open **Manage app → "
+        "Settings → Secrets** and paste this TOML (then reboot):\n\n"
+        "```toml\n"
+        'OPENAI_API_KEY = "sk-..."\n'
+        'HF_TOKEN = "hf_..."\n'
+        'INDEX_DATASET = "Harshbirr/researchmind-index"\n'
+        "```"
+    )
+    st.stop()
+
+import pandas as pd
+import plotly.graph_objects as go
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langsmith import Client
+from langchain_core.tracers.context import collect_runs
+
+from src.agent import research_agent, system_prompt, classify_query, decompose_query, active_corpus
+from src.corpus_config import DEFAULT_CORPUS
+from src.retrieve import retrieve_dense, retrieve_bm25, retrieve_hybrid
+from src.generate import generate_answer_stream
 
 # Streamlit Cloud (and similar hosts) clone git without chroma_db.
 # Local checkouts that already have data/chroma_db skip this instantly.

@@ -39,7 +39,13 @@ def search_research_papers(query: str) -> str:
     return formatted_context
 
 # ── 2. Initialize LLM & Bind Tools ──────────────────────────────────
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+_openai_key = os.getenv("OPENAI_API_KEY")
+if not _openai_key:
+    raise RuntimeError(
+        "OPENAI_API_KEY is not set. On Streamlit Cloud add it under "
+        "Manage app → Settings → Secrets, then reboot."
+    )
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=_openai_key)
 tools = [search_research_papers]
 
 # ── 3. Define the System Prompt ─────────────────────────────────────

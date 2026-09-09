@@ -475,13 +475,15 @@ The index is already uploaded as dataset `Harshbirr/researchmind-index`. The app
 1. Push the latest `app.py` (index download on startup) to GitHub if it is not there yet.
 2. Open [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
 3. **Create app** → repo `harshbir026/rag-research-assistant` → branch `main` → main file `app.py`.
-4. **Advanced settings → Secrets**:
+4. **Manage app → Settings → Secrets** (top-level TOML keys, not nested tables):
 
 ```toml
 OPENAI_API_KEY = "sk-..."
 HF_TOKEN = "hf_..."
 INDEX_DATASET = "Harshbirr/researchmind-index"
 ```
+
+`ChatOpenAI` reads `OPENAI_API_KEY` from the environment. The app copies Streamlit secrets into `os.environ` before that client is created. If you deployed before adding secrets, save them and **reboot**.
 
 5. Deploy. First boot is slow (BGE ~440MB + index ~230MB). URL looks like `https://<name>.streamlit.app`.
 6. Ask a FedAvg question, then switch corpus to software docs.
