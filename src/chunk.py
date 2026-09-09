@@ -1,7 +1,16 @@
+import argparse
 import json
+import re
+import sys
 import tiktoken
 from pathlib import Path
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from src.corpus_config import DEFAULT_CORPUS, get_corpus_config
 
 PARSED_DIR = Path("data/parsed")
 CHUNKS_DIR = Path("data/chunks")
@@ -22,6 +31,47 @@ TOKENIZER = tiktoken.get_encoding("cl100k_base")
 
 def count_tokens(text: str) -> int:
     return len(TOKENIZER.encode(text))
+
+
+FENCE_PATTERN = re.compile(r"(```[\w+-]*\n.*?```)", re.DOTALL)
+
+
+def chunk_markdown_aware(
+    text: str,
+    chunk_size: int = 400,
+    chunk_overlap: int = 40,
+) -> list[str]:
+    """
+    Split markdown without cutting fenced code blocks in half.
+
+    Text outside fences is recursively split. A fenced block is kept intact
+    even if it is larger than chunk_size — splitting it would be the same
+    failure mode as the equation-split bug on the research corpus.
+    """
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        length_function=count_tokens,
+        separators=["\n\n", "\n", ". ", " ", ""],
+    )
+    parts = FENCE_PATTERN.split(text)
+    chunks: list[str] = []
+    buffer = ""
+
+    def flush_buffer() -> None:
+        nonlocal buffer
+        if buffer.strip():
+            chunks.extend(splitter.split_text(buffer.strip()))
+        buffer = ""
+
+    for part in parts:
+        if part.startswith("```"):
+            flush_buffer()
+            chunks.append(part.strip())
+        else:
+            buffer += part
+    flush_buffer()
+    return [c for c in chunks if c.strip()]
 
 
 def get_splitter() -> RecursiveCharacterTextSplitter:
@@ -108,16 +158,6 @@ def chunk_all_papers() -> list[dict]:
     return all_chunks
 
 
-def save_chunks(all_chunks: list[dict]):
-    """Save all chunks to a single JSONL file (one chunk per line)."""
-    output_path = CHUNKS_DIR / "all_chunks.jsonl"
-    with open(output_path, "w", encoding="utf-8") as f:
-        for chunk in all_chunks:
-            f.write(json.dumps(chunk, ensure_ascii=False) + "\n")
-    print(f"\nSaved {len(all_chunks):,} chunks to {output_path}")
-    return output_path
-
-
 def print_summary(all_chunks: list[dict]):
     if not all_chunks:
         return
@@ -131,6 +171,43 @@ def print_summary(all_chunks: list[dict]):
     print(f"  Max tokens/chunk    : {max(token_counts)}")
     print(f"  Papers chunked      : {len(set(c['arxiv_id'] for c in all_chunks))}")
     print(f"{'='*50}")
+
+
+def find_markdown_code_block_failure(sample_md: str | None = None) -> None:
+    """
+    Document the generalization failure: a naive character splitter cuts a
+    fenced code block in half. Same class of bug as the equation split on
+    the research corpus — different domain, same chunking lesson.
+    """
+    from langchain_text_splitters import CharacterTextSplitter
+
+    sample_md = sample_md or """## Creating a FastAPI app
+
+```python
+from fastapi import FastAPI
+app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {"hello": "world"}
+```
+
+This creates a basic app with one route.
+"""
+    naive = CharacterTextSplitter(chunk_size=80, chunk_overlap=0, separator="")
+    naive_chunks = naive.split_text(sample_md)
+    aware_chunks = chunk_markdown_aware(sample_md, chunk_size=50, chunk_overlap=0)
+
+    print("NAIVE FIXED-SIZE SPLITTER (failure):")
+    for i, c in enumerate(naive_chunks):
+        fences = c.count("```")
+        print(f"  chunk {i}: {fences} fence markers | {c[:70]!r}...")
+        if "```" in c and fences % 2 != 0:
+            print("  ^ code fence split across a chunk boundary")
+
+    print("\nMARKDOWN-AWARE SPLITTER:")
+    for i, c in enumerate(aware_chunks):
+        print(f"  chunk {i}: {c.count('```')} fence markers")
 
 
 # ── INTERVIEW STORY ───────────────────────────────────────
@@ -198,11 +275,91 @@ def find_failure_case():
                     return
 
 
-if __name__ == "__main__":
-    import sys
+def chunk_software_docs(corpus: str = "software_docs") -> list[dict]:
+    """Chunk markdown/HTML/PDF-extracted notes for the secondary corpus."""
+    cfg = get_corpus_config(corpus)
+    source = Path(cfg["source_dir"])
+    files = sorted(
+        p for p in source.rglob("*")
+        if p.suffix.lower() in cfg["file_types"]
+        and p.is_file()
+        and p.name.lower() != "readme.md"
+    )
+    if not files:
+        print(f"No software docs in {source} — add .md/.pdf files first.")
+        return []
 
-    if len(sys.argv) > 1 and sys.argv[1] == "--find-failures":
+    all_chunks: list[dict] = []
+    print(f"Chunking {len(files)} software docs ({cfg['splitter']})...\n")
+
+    for path in files:
+        if path.suffix.lower() == ".pdf":
+            print(f"  {path.name:40s} → skip (text notes only; PDF parse is the research pipeline)")
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if not text.strip():
+            print(f"  {path.name:40s} → skip (empty)")
+            continue
+        if path.suffix.lower() == ".md":
+            raw = chunk_markdown_aware(
+                text,
+                chunk_size=cfg["chunk_size"],
+                chunk_overlap=cfg["chunk_overlap"],
+            )
+        else:
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=cfg["chunk_size"],
+                chunk_overlap=cfg["chunk_overlap"],
+                length_function=count_tokens,
+                separators=["\n\n", "\n", ". ", " ", ""],
+            )
+            raw = splitter.split_text(text)
+
+        doc_id = path.stem
+        for idx, chunk_text in enumerate(raw):
+            all_chunks.append({
+                "text": chunk_text,
+                "token_count": count_tokens(chunk_text),
+                "arxiv_id": doc_id,
+                "title": path.name,
+                "authors": "software_docs corpus",
+                "year": "",
+                "chunk_index": idx,
+                "total_chunks": len(raw),
+            })
+        print(f"  {path.name:40s} → {len(raw):3d} chunks")
+
+    return all_chunks
+
+
+def save_chunks(all_chunks: list[dict], output_path: Path | None = None):
+    """Save all chunks to a single JSONL file (one chunk per line)."""
+    path = output_path or (CHUNKS_DIR / "all_chunks.jsonl")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        for chunk in all_chunks:
+            f.write(json.dumps(chunk, ensure_ascii=False) + "\n")
+    print(f"\nSaved {len(all_chunks):,} chunks to {path}")
+    return path
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--corpus", default=DEFAULT_CORPUS)
+    parser.add_argument("--find-failures", action="store_true")
+    args = parser.parse_args()
+
+    if args.find_failures:
         find_failure_case()
+        print("\n" + "=" * 60)
+        print("MARKDOWN / CODE-BLOCK FAILURE (secondary corpus)")
+        print("=" * 60 + "\n")
+        find_markdown_code_block_failure()
+    elif args.corpus == "software_docs":
+        chunks = chunk_software_docs(args.corpus)
+        if chunks:
+            save_chunks(chunks, Path(get_corpus_config(args.corpus)["chunks_path"]))
+            print_summary(chunks)
     else:
         all_chunks = chunk_all_papers()
         if all_chunks:

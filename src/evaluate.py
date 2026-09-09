@@ -1,9 +1,16 @@
+import argparse
 import os
 import json
+import sys
 import time
+from functools import partial
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 from datasets import Dataset
 from ragas import evaluate
@@ -17,6 +24,7 @@ from ragas.llms import llm_factory
 from ragas.embeddings import embedding_factory
 from openai import OpenAI
 
+from src.corpus_config import DEFAULT_CORPUS
 from src.retrieve import retrieve_dense, retrieve_bm25, retrieve_hybrid
 from src.generate import generate_answer
 
@@ -61,12 +69,13 @@ answer_relevancy = AnswerRelevancy(
 # ──────────────────────────────────────────────────────────
 
 
-def load_golden_qa(tier: int | None = None) -> list[dict]:
+def load_golden_qa(tier: int | None = None, path: Path | None = None) -> list[dict]:
     """
     Load golden Q&A set, optionally filtered to a single tier.
-    tier=None loads all 25. tier=1/2/3 loads just that tier.
+    tier=None loads all questions. tier=1/2/3 loads just that tier.
     """
-    with open(GOLDEN_QA_PATH) as f:
+    qa_path = path or GOLDEN_QA_PATH
+    with open(qa_path) as f:
         data = json.load(f)
     questions = data["questions"]
     if tier is not None:
@@ -117,6 +126,7 @@ def run_ragas_eval(
     tier: int | None = None,
     k: int = 5,
     output_name: str = "dense_eval",
+    golden_set: Path | None = None,
 ) -> dict:
     """
     Run RAGAS evaluation on the golden set (or a tier subset).
@@ -132,7 +142,7 @@ def run_ragas_eval(
     Returns:
         dict of metric_name -> score
     """
-    questions = load_golden_qa(tier=tier)
+    questions = load_golden_qa(tier=tier, path=golden_set)
     if n_questions:
         questions = questions[:n_questions]
 
@@ -191,24 +201,42 @@ def run_ragas_eval(
 
 
 if __name__ == "__main__":
-    # Commented out so we don't re-run the dense baseline
-    # run_ragas_eval(
-    #     retriever_fn=retrieve_dense,
-    #     tier=None,
-    #     k=5,
-    #     output_name="dense_eval",
-    # )
+    parser = argparse.ArgumentParser(description="Run RAGAS on a golden set.")
+    parser.add_argument("--corpus", default=DEFAULT_CORPUS)
+    parser.add_argument("--golden_set", default=None)
+    parser.add_argument(
+        "--retriever",
+        choices=["dense", "bm25", "hybrid"],
+        default="hybrid",
+    )
+    parser.add_argument("--output_name", default=None)
+    parser.add_argument("--n_questions", type=int, default=None)
+    parser.add_argument("--k", type=int, default=5)
+    args = parser.parse_args()
 
-    # Run BM25 evaluation
-    # run_ragas_eval(
-    #     retriever_fn=retrieve_bm25,
-    #     tier=None,
-    #     k=5,
-    #     output_name="bm25_eval",
-    # )
+    retrievers = {
+        "dense": retrieve_dense,
+        "bm25": retrieve_bm25,
+        "hybrid": retrieve_hybrid,
+    }
+    retriever_fn = partial(retrievers[args.retriever], corpus=args.corpus)
+    retriever_fn.__name__ = args.retriever
+
+    if args.golden_set:
+        golden_path = Path(args.golden_set)
+    elif args.corpus == "software_docs":
+        golden_path = Path("golden_qa_software.json")
+    else:
+        golden_path = GOLDEN_QA_PATH
+
+    output_name = args.output_name or (
+        f"{args.retriever}_{args.corpus}_eval"
+    )
+
     run_ragas_eval(
-        retriever_fn=retrieve_hybrid,
-        tier=None,
-        k=5,
-        output_name="hybrid_eval",
+        retriever_fn=retriever_fn,
+        n_questions=args.n_questions,
+        k=args.k,
+        output_name=output_name,
+        golden_set=golden_path,
     )

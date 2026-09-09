@@ -5,7 +5,8 @@ import html
 from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
-from src.agent import research_agent, system_prompt, classify_query, decompose_query
+from src.agent import research_agent, system_prompt, classify_query, decompose_query, active_corpus
+from src.corpus_config import DEFAULT_CORPUS
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langsmith import Client
 from langchain_core.tracers.context import collect_runs
@@ -534,6 +535,25 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.markdown("---")
+    st.markdown("### Corpus")
+    corpus_label = st.radio(
+        "corpus",
+        ["Research papers (FL / privacy / deepfakes)", "Software docs (API / HTTP / OAuth)"],
+        label_visibility="collapsed",
+        help="Two isolated Chroma collections. Never mixed.",
+    )
+    corpus = (
+        "software_docs"
+        if corpus_label.startswith("Software")
+        else DEFAULT_CORPUS
+    )
+    active_corpus.set(corpus)
+    st.caption(
+        "Same retriever and agent. Separate indexes. "
+        "Software docs prove the pipeline generalizes."
+    )
+
+    st.markdown("---")
     st.markdown("### Pipeline")
     st.markdown("""
     <div class='sidebar-stat'><span class='ss-label'>Papers</span><span class='ss-val'>251</span></div>
@@ -773,7 +793,7 @@ with tab_chat:
                 agent_failed = True
                 st.warning(f"⚠️ Agent failed ({type(e).__name__}) — falling back to direct hybrid retrieval.")
                 try:
-                    fallback_chunks = retrieve_hybrid(query, k=5)
+                    fallback_chunks = retrieve_hybrid(query, k=5, corpus=corpus)
                     fallback_answer = "".join(generate_answer_stream(query, fallback_chunks))
                     response = {"messages": [HumanMessage(content=fallback_answer)]}
                     run_collector = None
@@ -858,7 +878,7 @@ with tab_chat:
             time.sleep(0.05)
             with pipe_placeholder: pipeline_bar(embed_state="done", retrieve_state="active")
             with st.spinner(f"Running {mode_short} retrieval…"):
-                chunks = retriever_fn(query, k=k)
+                chunks = retriever_fn(query, k=k, corpus=corpus)
             retrieval_elapsed = time.time() - start_time
             with pipe_placeholder: pipeline_bar(embed_state="done", retrieve_state="done", generate_state="active")
 

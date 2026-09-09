@@ -8,7 +8,8 @@ from src.logger import log_query, get_logger
 
 logger = get_logger(__name__)
 
-from src.retrieve import retrieve_dense, RetrievedChunk
+from src.retrieve import retrieve_hybrid, RetrievedChunk
+from src.corpus_config import DEFAULT_CORPUS
 
 load_dotenv()
 
@@ -23,24 +24,24 @@ MODEL_NAME = "gpt-4o-mini"
 # would cost ~20x more for marginal quality gain on this task.
 TEMPERATURE = 0.1   # low temperature — factual Q&A, not creative writing
 
-SYSTEM_PROMPT = """You are a research assistant specializing in machine learning papers.
+SYSTEM_PROMPT = """You are a grounded Q&A assistant.
 
 Answer the user's question using ONLY the provided context below. Do not use any
 outside knowledge, even if you know the answer from training.
 
 Rules:
-1. Cite the paper title (and year if available) for every claim you make, using
-   the format: (Paper Title, Year)
+1. Cite the source title (and year if available) for every claim you make, using
+   the format: (Source Title, Year)
 2. If the context does not contain enough information to answer the question,
    say so explicitly — do not guess or fill gaps with outside knowledge.
 3. If no context was retrieved at all (the context says "No relevant context
    was found"), respond with exactly: "I don't have enough information in my
    knowledge base to answer this question." Do not attempt to answer from
    general knowledge.
-4. If different papers disagree or present different approaches, mention this.
+4. If different sources disagree or present different approaches, mention this.
 5. Keep your answer focused and well-organized. Use bullet points if comparing
-   multiple papers or methods.
-6. Do not fabricate paper titles, authors, or findings not present in the context.
+   multiple sources or methods.
+6. Do not fabricate titles, authors, or findings not present in the context.
 """
 # ──────────────────────────────────────────────────────────
 
@@ -161,12 +162,12 @@ Answer the question using only the context above, with citations."""
         raise
 
 
-def ask(query: str, k: int = 5) -> dict:
+def ask(query: str, k: int = 5, corpus: str = DEFAULT_CORPUS) -> dict:
     """
     Full end-to-end RAG pipeline: retrieve + generate in one call.
     This is the function you'll call from app.py, agent.py, and evaluate.py.
     """
-    chunks = retrieve_dense(query, k=k)
+    chunks = retrieve_hybrid(query, k=k, corpus=corpus)
     result = generate_answer(query, chunks)
     result["query"] = query
     return result

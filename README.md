@@ -1,3 +1,15 @@
+---
+title: ResearchMind
+emoji: ⚡
+colorFrom: indigo
+colorTo: cyan
+sdk: docker
+app_port: 8501
+pinned: false
+license: mit
+short_description: Agentic RAG over federated learning papers and software docs
+---
+
 ![Python](https://img.shields.io/badge/Python-3.11-blue?style=flat-square&logo=python)
 ![LangGraph](https://img.shields.io/badge/Agent-LangGraph-1C3C3C?style=flat-square)
 ![ChromaDB](https://img.shields.io/badge/VectorDB-ChromaDB-FF6F00?style=flat-square)
@@ -9,7 +21,7 @@
 
 # ResearchMind — Agentic RAG Research Assistant
 
-A retrieval-augmented research assistant over **252 arXiv papers (10,715 chunks)**
+A retrieval-augmented research assistant over **251 arXiv papers (10,715 chunks)**
 spanning federated learning, privacy-preserving ML, and deepfake detection. The
 system combines hybrid retrieval (BM25 + BGE dense embeddings + FlashRank
 cross-encoder reranking, fused with Reciprocal Rank Fusion) with a **self-directed
@@ -28,7 +40,7 @@ hand-verified, 25-question golden set using RAGAS, and fully traced with LangSmi
 │
 ▼
 ┌──────────────────┐     arXiv API — federated learning, privacy ML,
-│  Corpus Ingestion │ ──► deepfake detection (252 PDFs)
+│  Corpus Ingestion │ ──► deepfake detection (251 PDFs)
 └─────────┬─────────┘     urllib.request.urlretrieve (arxiv lib's
 ▼                         download_pdf() was removed upstream)
 ┌──────────────────┐     PyMuPDF — title (largest font, ~80% accurate),
@@ -88,6 +100,7 @@ hand-verified, 25-question golden set using RAGAS, and fully traced with LangSmi
 - **Streaming end-to-end** — GPT-4o-mini tokens stream through a FastAPI SSE endpoint and directly into the Streamlit UI via `st.empty()`, with sources rendered before generation even starts (retrieval is ~1% of total latency; no reason to make the user wait for it)
 - **Production hygiene, tested against real failure** — layered failure handling per LLM call, a pytest suite with an environment-aware `requires_chromadb` marker, Docker Compose (build context cut from 4.33GB to ~7MB via `.dockerignore`), and GitHub Actions CI that took 4 real iterations to go green
 - **Honest, documented limitations** — an unresolved citation-consistency bug (arXiv publication year is metadata, not text content, so "what year" questions don't reliably retrieve the source paper) is logged in `KNOWN_ISSUES.md` rather than hidden
+- **Corpus-agnostic pipeline** — `--corpus software_docs` points the same chunker, hybrid retriever, and ReAct agent at 30 software/API notes in a **separate** Chroma collection. The only new parameter was markdown-aware splitting so fenced code blocks are never cut in half (the same failure class as equation-splitting on papers)
 
 ---
 
@@ -110,11 +123,17 @@ pip install -r requirements.txt
 cp .env.example .env  # add your API keys
 
 # build the corpus (one-time, ~20-30 min total)
-python src/ingest.py          # downloads 252 papers from arXiv
+python src/ingest.py          # downloads 251 papers from arXiv
 python src/parse.py           # PyMuPDF extraction, JSON sidecars
 python src/chunk.py           # recursive chunking, 512 tokens / 50 overlap
-python src/chunk.py --find-failures   # prints real equation-split evidence
+python src/chunk.py --find-failures   # prints real equation-split + code-fence evidence
 python src/embed.py           # embeds 10,715 chunks into ChromaDB (~15 min CPU)
+
+# secondary corpus (optional — proves the pipeline is corpus-agnostic)
+python src/ingest.py --corpus software_docs
+python src/chunk.py --corpus software_docs
+python src/embed.py --corpus software_docs
+# python src/evaluate.py --corpus software_docs   # RAGAS; costs API, 5 golden Qs
 
 # run it
 streamlit run app.py          # chat UI + evaluation dashboard
@@ -170,7 +189,7 @@ Both services share a volume-mounted `./data` directory. `.dockerignore` exclude
 | UI | Streamlit | Custom dark theme, live token streaming via `st.empty()`, agent routing/sub-question transparency, one-click LangSmith trace links |
 | Testing | pytest + pytest-mock | 12 tests total; 5 marked `requires_chromadb` (skipped in CI, pass locally), 7 run in CI |
 | CI | GitHub Actions | ruff lint + pytest on every push — took 4 real iterations to get green |
-| Deployment | Docker Compose, Hugging Face Spaces | Reproducible locally, free public demo |
+| Deployment | Docker Compose, Hugging Face Spaces (Docker SDK) | Reproducible locally; Space metadata is in this README. Go live by creating a Space from the GitHub repo and adding secrets (see [Deploy](#deploy)) |
 
 ---
 
@@ -179,19 +198,20 @@ Both services share a volume-mounted `./data` directory. `.dockerignore` exclude
 ```
 rag-research-assistant/
 ├── data/
-│   ├── papers/                 # 252 downloaded PDFs (primary corpus)
+│   ├── papers/                 # 251 downloaded PDFs (primary corpus)
 │   ├── parsed/                 # PyMuPDF JSON sidecars
-│   ├── chunks/                 # all_chunks.jsonl — 10,715 chunks
-│   ├── software_docs/          # secondary corpus (generalization test)
-│   └── chroma_db/               # persistent vector store
+│   ├── chunks/                 # all_chunks.jsonl — 10,715 chunks; software_docs.jsonl
+│   ├── software_docs/          # 30 original teaching notes (secondary corpus)
+│   └── chroma_db/               # persistent vector store (separate collections)
 ├── src/
+│   ├── corpus_config.py         # --corpus flag: research vs software_docs
 │   ├── ingest.py                # arXiv download (urllib fallback)
 │   ├── parse.py                 # PyMuPDF extraction + metadata
-│   ├── chunk.py                 # recursive splitting + --find-failures
+│   ├── chunk.py                 # recursive + markdown-aware + --find-failures
 │   ├── embed.py                 # BGE embedding + ChromaDB store
-│   ├── retrieve.py              # dense / BM25 / hybrid (RRF)
+│   ├── retrieve.py              # dense / BM25 / hybrid (RRF), corpus-aware
 │   ├── rerank.py                # FlashRank cross-encoder
-│   ├── generate.py              # LLM call, streaming, Mistral provider
+│   ├── generate.py              # LLM call, streaming
 │   ├── agent.py                 # LangGraph ReAct agent + display-layer helpers
 │   └── evaluate.py              # RAGAS + golden set runner (venv_eval only)
 ├── notebooks/
@@ -200,7 +220,9 @@ rag-research-assistant/
 │   ├── test_retrieval.py        # includes requires_chromadb-marked tests
 │   ├── test_hybrid.py
 │   ├── test_reranker.py
-│   └── test_agent.py
+│   ├── test_agent.py
+│   ├── test_markdown_chunker.py # code fences never split
+│   └── test_corpus_config.py
 ├── logs/
 │   ├── queries.jsonl             # structured, per-query
 │   └── app.log                   # human-readable
@@ -208,8 +230,10 @@ rag-research-assistant/
 ├── .dockerignore                 # keeps build context ~7MB
 ├── app.py                        # Streamlit UI
 ├── api.py                        # FastAPI endpoint (health check, SSE, /query/agent)
-├── golden_qa.json                 # 25 hand-verified Q&A pairs
+├── golden_qa.json                 # 25 hand-verified Q&A pairs (research)
+├── golden_qa_software.json        # 5 Q&A pairs (software docs generalization)
 ├── KNOWN_ISSUES.md                # citation-consistency bug, documented not hidden
+├── LICENSE
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt               # main pipeline
@@ -440,6 +464,51 @@ weekend demo:
 
 ---
 
+## Deploy
+
+### Hugging Face Spaces
+
+This repo is already a Docker Space (`sdk: docker`, port 8501). To publish it:
+
+1. [Create a Space](https://huggingface.co/new-space) → Docker → connect `harshbir026/rag-research-assistant`.
+2. Space secrets (Settings → Variables and secrets):
+
+   | Secret | Value |
+   |---|---|
+   | `OPENAI_API_KEY` | required |
+   | `LANGCHAIN_API_KEY` | optional |
+   | `LANGCHAIN_TRACING_V2` | `true` if tracing |
+   | `LANGCHAIN_PROJECT` | `rag-research-assistant` |
+
+3. Upload or persist `data/chroma_db/` from a machine that has the 251-paper index (it is gitignored; a Spaces clone has no vectors without this step). The software-docs notes in `data/software_docs/` ship with git and can be re-chunked/embedded on first boot if you only need the secondary corpus.
+4. Hardware: CPU is enough; first start downloads BGE (~440MB).
+
+Until those secrets and the Chroma snapshot are on the Space, there is **no public live URL** — do not put a fake one on a resume.
+
+### Resume bullet (real RAGAS numbers)
+
+Built a domain-agnostic RAG research assistant over 251 arXiv papers (federated learning, privacy ML, deepfakes) plus a software-docs generalization corpus; hybrid retrieval (BM25 + BGE + FlashRank, RRF k=60) reached 0.954 faithfulness on a 25-question golden eval (vs 0.933 dense-only); LangGraph ReAct agent handles multi-hop questions; FastAPI SSE + Streamlit.
+
+### Loom script (~3 minutes)
+
+Opening: "This is a research assistant for federated learning and privacy ML papers. What makes it different is the retrieval ablation and the ReAct agent for complex queries."
+
+1. Sidebar: 251 papers, BGE-768, corpus toggle (research vs software docs).
+2. Simple query, Hybrid mode: "How does FedAvg aggregate client updates?" — sources then streamed answer.
+3. Agentic mode: "Compare FedAvg and pFedMe on non-IID data" — sub-questions + tool-call trace.
+4. Ablation tab: BM25 vs dense vs hybrid table (faithfulness 0.889 / 0.933 / 0.954).
+5. Close on GitHub + `/health` contract: `{"status": "ok", "corpus_size": N, "model": "BGE-base"}`.
+
+Record in one take after one rehearsal. Paste the Loom (or unlisted YouTube) URL under this heading once it exists.
+
+### LinkedIn (paste when you post)
+
+Built a RAG research assistant over 251 arXiv papers on federated learning, privacy ML, and deepfakes. Hybrid retrieval (BM25 + dense + cross-encoder reranking) hit 0.954 RAGAS faithfulness on a 25-question golden set. A LangGraph ReAct agent handles multi-hop questions. The same pipeline also runs on a second software-docs corpus — config flag, separate index, one extra chunking parameter for code fences.
+
+GitHub: https://github.com/harshbir026/rag-research-assistant
+
+---
+
 ## Version History
 
 - `v0.2-dense-rag-baseline` — Phase 2 complete: dense RAG, RAGAS baseline (0.93 faithfulness), Streamlit + FastAPI SSE
@@ -461,5 +530,5 @@ weekend demo:
 
 ## Data Sources
 
-- arXiv API — federated learning, privacy-preserving ML, and deepfake detection papers (252 PDFs, 10,715 chunks)
-- FastAPI official documentation, RFC 7231 (HTTP), RFC 6749 (OAuth 2.0), engineering blog posts, framework READMEs — secondary generalization corpus
+- arXiv API — federated learning, privacy-preserving ML, and deepfake detection papers (251 PDFs, 10,715 chunks)
+- Original software/API teaching notes (FastAPI, Flask, HTTP/OAuth RFC summaries) — secondary generalization corpus, separate Chroma collection, 5 golden questions. Not a dump of vendor documentation.

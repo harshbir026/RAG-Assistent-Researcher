@@ -6,6 +6,7 @@ import math
 from rank_bm25 import BM25Okapi
 import chromadb
 from src.logger import get_logger
+from src.corpus_config import DEFAULT_CORPUS, get_corpus_config
 logger = get_logger(__name__)
 
 class QueryValidationError(ValueError):
@@ -76,7 +77,8 @@ class RetrievedChunk:
 # other file (generate.py, agent.py, evaluate.py) imports this module
 # and reuses the same loaded model — avoids reloading 3 seconds per call.
 _model = None
-_collection = None
+_collections: dict = {}
+_bm25_by_corpus: dict = {}
 
 
 def _get_model() -> SentenceTransformer:
@@ -87,20 +89,28 @@ def _get_model() -> SentenceTransformer:
     return _model
 
 
-def _get_collection():
-    global _collection
-    if _collection is None:
+def _get_collection(corpus: str = DEFAULT_CORPUS):
+    if corpus not in _collections:
+        cfg = get_corpus_config(corpus)
         client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-        _collection = client.get_collection(COLLECTION_NAME)
-    return _collection
+        _collections[corpus] = client.get_collection(cfg["collection_name"])
+    return _collections[corpus]
+
+
+def corpus_size(corpus: str = DEFAULT_CORPUS) -> int:
+    """Chunk count in the named Chroma collection, or 0 if it is missing."""
+    try:
+        return _get_collection(corpus).count()
+    except Exception:
+        return 0
 
 
 def retrieve_dense(
     query: str,
     k: int = 5,
     similarity_threshold: float = SIMILARITY_THRESHOLD,
+    corpus: str = DEFAULT_CORPUS,
 ) -> list[RetrievedChunk]:
-    query = validate_query(query)
     """
     Embed a query and retrieve the top-k most similar chunks from ChromaDB.
 
@@ -122,8 +132,9 @@ def retrieve_dense(
         List of RetrievedChunk, sorted by similarity descending.
         May return fewer than k if some results fall below threshold.
     """
+    query = validate_query(query)
     model = _get_model()
-    collection = _get_collection()
+    collection = _get_collection(corpus)
 
     # BGE query prefix — MUST match what was used at embedding time.
     # Documents were embedded with "Represent this passage for retrieval: "
@@ -183,21 +194,22 @@ def _tokenize(text: str) -> list[str]:
     return text.lower().split()
 
 
-def _build_bm25_index() -> tuple[BM25Okapi, list[dict]]:
+def _build_bm25_index(corpus_name: str = DEFAULT_CORPUS) -> tuple[BM25Okapi, list[dict]]:
     """
     Build BM25 index over all chunks from the JSONL file.
     Takes ~2 minutes first time. Saves to disk so subsequent calls
     load instantly (~1 second).
     """
-    from pathlib import Path
     import json
 
-    chunks_path = Path("data/chunks/all_chunks.jsonl")
+    cfg = get_corpus_config(corpus_name)
+    chunks_path = Path(cfg["chunks_path"])
+    index_path = Path(cfg["bm25_path"])
     if not chunks_path.exists():
-        raise FileNotFoundError("No chunks file — run chunk.py first.")
+        raise FileNotFoundError(f"No chunks file at {chunks_path} — run chunk.py first.")
 
-    print("Building BM25 index from all chunks (one-time, ~2 min)...")
-    corpus = []
+    print(f"Building BM25 index from {chunks_path} (one-time)...")
+    tokenized = []
     chunk_store = []
 
     with open(chunks_path, encoding="utf-8") as f:
@@ -206,43 +218,41 @@ def _build_bm25_index() -> tuple[BM25Okapi, list[dict]]:
             if not line:
                 continue
             chunk = json.loads(line)
-            corpus.append(_tokenize(chunk["text"]))
+            tokenized.append(_tokenize(chunk["text"]))
             chunk_store.append(chunk)
 
-    bm25 = BM25Okapi(corpus)
-    print(f"BM25 index built over {len(corpus):,} chunks.")
+    bm25 = BM25Okapi(tokenized)
+    print(f"BM25 index built over {len(tokenized):,} chunks.")
 
-    with open(BM25_INDEX_PATH, "wb") as f:
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(index_path, "wb") as f:
         pickle.dump({"bm25": bm25, "chunks": chunk_store}, f)
-    print(f"Index saved to {BM25_INDEX_PATH}")
+    print(f"Index saved to {index_path}")
 
     return bm25, chunk_store
 
 
-def _load_bm25_index() -> tuple[BM25Okapi, list[dict]]:
+def _load_bm25_index(corpus_name: str = DEFAULT_CORPUS) -> tuple[BM25Okapi, list[dict]]:
     """Load from disk if it exists, otherwise build it."""
-    if BM25_INDEX_PATH.exists():
-        with open(BM25_INDEX_PATH, "rb") as f:
+    cfg = get_corpus_config(corpus_name)
+    index_path = Path(cfg["bm25_path"])
+    if index_path.exists():
+        with open(index_path, "rb") as f:
             data = pickle.load(f)
         return data["bm25"], data["chunks"]
-    return _build_bm25_index()
+    return _build_bm25_index(corpus_name)
 
 
-# module-level singleton — same lazy-load pattern as dense retrieval
-_bm25 = None
-_bm25_chunks = None
-
-
-def _get_bm25():
-    global _bm25, _bm25_chunks
-    if _bm25 is None:
-        _bm25, _bm25_chunks = _load_bm25_index()
-    return _bm25, _bm25_chunks
+def _get_bm25(corpus_name: str = DEFAULT_CORPUS):
+    if corpus_name not in _bm25_by_corpus:
+        _bm25_by_corpus[corpus_name] = _load_bm25_index(corpus_name)
+    return _bm25_by_corpus[corpus_name]
 
 
 def retrieve_bm25(
     query: str,
     k: int = 5,
+    corpus: str = DEFAULT_CORPUS,
 ) -> list[RetrievedChunk]:
     """
     BM25 sparse retrieval — keyword-based scoring.
@@ -258,7 +268,7 @@ def retrieve_bm25(
     """
     query = validate_query(query)
 
-    bm25, chunk_store = _get_bm25()
+    bm25, chunk_store = _get_bm25(corpus)
     tokenized_query = _tokenize(query)
 
     scores = bm25.get_scores(tokenized_query)
@@ -334,22 +344,22 @@ def run_test_suite():
     print("✅  Manually verify each result above is topically relevant.")
     print("=" * 60)
 
-def retrieve_hybrid(query: str, k: int = 5) -> list[RetrievedChunk]:
+def retrieve_hybrid(query: str, k: int = 5, corpus: str = DEFAULT_CORPUS) -> list[RetrievedChunk]:
     """
     Hybrid Retrieval Pipeline (Two-Stage):
     Stage 1: Retrieve candidate lists using both Dense (BGE) and Sparse (BM25).
     Stage 2: Fuse the raw ranks using Reciprocal Rank Fusion (RRF).
     Stage 3: Extract top candidates and pass to Cross-Encoder Reranker for final top-k selection.
     
-    Formula: RRF_Score(d) = \sum_{m \in M} \frac{1}{60 + r_m(d)}
+    Reciprocal Rank Fusion: score(d) = sum over retrievers of 1 / (60 + rank_m(d)).
     """
     # Defensive query validation
     query = validate_query(query)
     
     # 1. Fetch deep candidate pools from both retrieval strategies (fetch k=10 or 15)
     pool_depth = max(k * 2, 10)
-    dense_candidates = retrieve_dense(query, k=pool_depth)
-    bm25_candidates = retrieve_bm25(query, k=pool_depth)
+    dense_candidates = retrieve_dense(query, k=pool_depth, corpus=corpus)
+    bm25_candidates = retrieve_bm25(query, k=pool_depth, corpus=corpus)
     
     # 2. Compute Reciprocal Rank Fusion scores
     # We use a standard RRF constant of 60 to prevent early ranks from completely dominating

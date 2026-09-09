@@ -1,36 +1,41 @@
 import os
+from contextvars import ContextVar
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage, SystemMessage
 
-# Import your optimized Phase 3 hybrid retriever
+from src.corpus_config import DEFAULT_CORPUS
 from src.retrieve import retrieve_hybrid
 
 load_dotenv()
 
-# ── 1. Define the Tool ──────────────────────────────────────────────
+active_corpus: ContextVar[str] = ContextVar("active_corpus", default=DEFAULT_CORPUS)
+
+
 @tool
 def search_research_papers(query: str) -> str:
     """
-    Searches a database of academic research papers for the given query.
-    Returns the top retrieved text chunks with their arXiv IDs.
-    Always use this tool when asked about technical concepts, federated learning, or deepfakes.
+    Searches the active document corpus for the given query.
+    Returns the top retrieved text chunks with their source ids.
+    Always use this tool when asked about technical concepts in the corpus.
     """
-    print(f"\n[Tool Execution] 🔍 Searching corpus for: '{query}'")
-    
-    # Use the Hybrid Retriever (Dense + BM25 + Cross-Encoder)
-    chunks = retrieve_hybrid(query, k=5)
-    
+    corpus = active_corpus.get()
+    print(f"\n[Tool Execution] 🔍 Searching {corpus} for: '{query}'")
+
+    chunks = retrieve_hybrid(query, k=5, corpus=corpus)
+
     if not chunks:
-        return "No relevant papers found for this query."
-    
-    # Format the retrieved chunks so the LLM can read them
+        return "No relevant documents found for this query."
+
     formatted_context = ""
     for i, chunk in enumerate(chunks, 1):
-        formatted_context += f"[Paper {i} | arXiv: {chunk.arxiv_id} | Title: {chunk.title[:50]}...]\n{chunk.text}\n\n"
-    
+        formatted_context += (
+            f"[Source {i} | id: {chunk.arxiv_id} | Title: {chunk.title[:50]}...]\n"
+            f"{chunk.text}\n\n"
+        )
+
     return formatted_context
 
 # ── 2. Initialize LLM & Bind Tools ──────────────────────────────────
@@ -39,13 +44,13 @@ tools = [search_research_papers]
 
 # ── 3. Define the System Prompt ─────────────────────────────────────
 
-system_prompt = """You are a specialized AI academic research assistant. Your ONLY purpose is to answer questions based on the provided academic literature corpus.
-You have access to a tool called 'search_research_papers'. 
+system_prompt = """You are a specialized AI assistant. Your ONLY purpose is to answer questions based on the provided document corpus.
+You have access to a tool called 'search_research_papers'.
 
 STRICT GUARDRAILS:
-1. OUT-OF-DOMAIN: If the user asks a question that is not related to computer science, machine learning, deep learning, or the research papers (e.g., coding help, general trivia, creative writing, personal advice), you MUST politely refuse to answer. Say: "I am a specialized research assistant and can only answer questions related to the academic literature in my database."
-2. HALLUCINATION PREVENTION: If you search the corpus and cannot find the answer, explicitly state that the information is not present in your research corpus. Do NOT use your internal training data to answer.
-3. CITATIONS: When you provide an answer, you MUST cite your sources using the arXiv IDs provided by the tool (e.g., [arXiv: 1234.5678]).
+1. OUT-OF-DOMAIN: If the user asks a question that is not related to the corpus (e.g. personal advice, creative writing), you MUST politely refuse to answer. Say: "I am a specialized assistant and can only answer questions related to the documents in my database."
+2. HALLUCINATION PREVENTION: If you search the corpus and cannot find the answer, explicitly state that the information is not present. Do NOT use your internal training data to answer.
+3. CITATIONS: When you provide an answer, you MUST cite your sources using the ids provided by the tool.
 
 INSTRUCTIONS:
 - Always use the search tool to gather context before answering factual or technical questions.

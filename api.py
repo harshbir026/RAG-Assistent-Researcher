@@ -5,11 +5,11 @@ from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, Field
-from src.retrieve import retrieve_dense
+from src.retrieve import retrieve_hybrid, corpus_size
 from src.generate import generate_answer_stream, build_context_block
+from src.corpus_config import DEFAULT_CORPUS, CORPUS_CONFIGS
 
-
-from src.agent import research_agent, system_prompt, classify_query, decompose_query
+from src.agent import research_agent, system_prompt, classify_query, decompose_query, active_corpus
 from langchain_core.messages import HumanMessage, SystemMessage
 
 
@@ -92,6 +92,11 @@ class QueryRequest(BaseModel):
         description="Number of document chunks to retrieve from the vector store. Higher values provide more context but increase token usage.",
         examples=[5],
     )
+    corpus: str = Field(
+        default=DEFAULT_CORPUS,
+        description="Which isolated collection to search: 'research' or 'software_docs'.",
+        examples=["research"],
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -128,8 +133,9 @@ class RootResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    status: str = Field(description="Always 'healthy' when the process is alive.")
-    timestamp: float = Field(description="Unix epoch timestamp of the health check.")
+    status: str = Field(description="Always 'ok' when the process is alive.")
+    corpus_size: int = Field(description="Chunk count in the primary research collection.")
+    model: str = Field(description="Embedding model family serving retrieval.")
 
 
 class SourceItem(BaseModel):
@@ -677,13 +683,17 @@ def root():
     response_model=HealthResponse,
     summary="Health check",
     description=(
-        "Lightweight liveness probe. Returns `healthy` and the current Unix timestamp. "
-        "Use this for container orchestration readiness/liveness checks (e.g. Kubernetes, Railway, Render)."
+        "Liveness probe plus live corpus size. "
+        "Returns status, primary collection chunk count, and embedding model name."
     ),
     tags=["ops"],
 )
 def health():
-    return {"status": "healthy", "timestamp": time.time()}
+    return {
+        "status": "ok",
+        "corpus_size": corpus_size(DEFAULT_CORPUS),
+        "model": "BGE-base",
+    }
 
 
 # ── SSE helpers ───────────────────────────────────────────────────────────────
@@ -693,7 +703,7 @@ def sse_event(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
-async def stream_rag_response(question: str, k: int):
+async def stream_rag_response(question: str, k: int, corpus: str = DEFAULT_CORPUS):
     """
     Generator that yields SSE-formatted events:
     1. A 'retrieval' event with the sources found
@@ -703,7 +713,7 @@ async def stream_rag_response(question: str, k: int):
     start_time = time.time()
 
     # ── retrieval phase ─────────────────────────────────
-    chunks = retrieve_dense(question, k=k)
+    chunks = retrieve_hybrid(question, k=k, corpus=corpus)
     sources = [
         {
             "arxiv_id": c.arxiv_id,
@@ -792,9 +802,11 @@ const reader = res.body.getReader();
 async def query_endpoint(request: QueryRequest):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
+    if request.corpus not in CORPUS_CONFIGS:
+        raise HTTPException(status_code=400, detail=f"Unknown corpus '{request.corpus}'")
 
     return StreamingResponse(
-        stream_rag_response(request.question, request.k),
+        stream_rag_response(request.question, request.k, request.corpus),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -804,21 +816,28 @@ async def query_endpoint(request: QueryRequest):
     )
 class AgentQueryRequest(BaseModel):
     question: str
+    corpus: str = DEFAULT_CORPUS
 
 
 @app.post("/query/agent")
 def query_agent(request: AgentQueryRequest):
     start = time.time()
+    if request.corpus not in CORPUS_CONFIGS:
+        raise HTTPException(status_code=400, detail=f"Unknown corpus '{request.corpus}'")
 
-    classification = classify_query(request.question)
-    sub_questions = decompose_query(request.question) if classification == "complex" else []
+    token = active_corpus.set(request.corpus)
+    try:
+        classification = classify_query(request.question)
+        sub_questions = decompose_query(request.question) if classification == "complex" else []
 
-    response = research_agent.invoke({
-        "messages": [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=request.question),
-        ]
-    })
+        response = research_agent.invoke({
+            "messages": [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=request.question),
+            ]
+        })
+    finally:
+        active_corpus.reset(token)
 
     final_answer = response["messages"][-1].content
 

@@ -1,10 +1,18 @@
-import arxiv
+import argparse
 import os
 import time
 import json
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 import ssl
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from src.corpus_config import DEFAULT_CORPUS, get_corpus_config
+
 ssl._create_default_https_context = ssl.create_default_context
 
 load_dotenv()
@@ -47,6 +55,8 @@ def sanitize_id(arxiv_id: str) -> str:
 
 
 def download_domain(domain_name: str, queries: list) -> dict:
+    import arxiv
+
     print(f"\n{'='*50}")
     print(f"Domain: {domain_name.upper()}")
     print(f"{'='*50}")
@@ -127,7 +137,7 @@ def print_summary(results: list):
         print(f"\n✅  {actual_count} PDFs ready for parsing on Day 3.")
 
 
-def main():
+def ingest_research() -> None:
     print("Starting arXiv corpus download...")
     print(f"Output directory: {OUTPUT_DIR.resolve()}")
 
@@ -146,6 +156,40 @@ def main():
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=2)
     print(f"\nManifest saved to {manifest_path}")
+
+
+def ingest_software_docs(corpus: str = "software_docs") -> None:
+    """Inventory the secondary corpus. Notes already live in data/software_docs/."""
+    cfg = get_corpus_config(corpus)
+    source = Path(cfg["source_dir"])
+    files = sorted(
+        p for p in source.rglob("*")
+        if p.suffix.lower() in cfg["file_types"]
+        and p.is_file()
+        and p.name.lower() != "readme.md"
+        and p.stat().st_size > 0
+        and p.suffix.lower() != ".pdf"
+    )
+    print(f"Software docs corpus at {source.resolve()}")
+    print(f"  files: {len(files)}")
+    for path in files:
+        print(f"    {path.name}")
+    if len(files) < 25:
+        print(f"\n⚠️  Only {len(files)} docs — target is ~30 teaching notes.")
+    else:
+        print(f"\n✅  {len(files)} docs ready. Next: python src/chunk.py --corpus {corpus}")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--corpus", default=DEFAULT_CORPUS)
+    args = parser.parse_args()
+    if args.corpus == "software_docs":
+        ingest_software_docs(args.corpus)
+    elif args.corpus == "research":
+        ingest_research()
+    else:
+        raise SystemExit(f"Unknown corpus '{args.corpus}'")
 
 
 if __name__ == "__main__":

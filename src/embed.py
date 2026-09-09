@@ -1,10 +1,18 @@
+import argparse
 import json
+import sys
 import time
 from pathlib import Path
 from tqdm import tqdm
 from sentence_transformers import SentenceTransformer
 import chromadb
 from chromadb.config import Settings
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from src.corpus_config import DEFAULT_CORPUS, get_corpus_config
 
 # ── config ────────────────────────────────────────────────
 CHUNKS_PATH = Path("data/chunks/all_chunks.jsonl")
@@ -25,19 +33,20 @@ BATCH_SIZE = 64
 # ──────────────────────────────────────────────────────────
 
 
-def load_chunks() -> list[dict]:
+def load_chunks(chunks_path: Path | None = None) -> list[dict]:
     """Load all chunks from the JSONL file produced by chunk.py."""
-    if not CHUNKS_PATH.exists():
+    path = chunks_path or CHUNKS_PATH
+    if not path.exists():
         raise FileNotFoundError(
-            f"No chunks file at {CHUNKS_PATH} — run chunk.py first."
+            f"No chunks file at {path} — run chunk.py first."
         )
     chunks = []
-    with open(CHUNKS_PATH, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
                 chunks.append(json.loads(line))
-    print(f"Loaded {len(chunks):,} chunks from {CHUNKS_PATH}")
+    print(f"Loaded {len(chunks):,} chunks from {path}")
     return chunks
 
 
@@ -54,17 +63,21 @@ def load_model() -> SentenceTransformer:
     return model
 
 
-def get_or_create_collection(client: chromadb.PersistentClient):
+def get_or_create_collection(
+    client: chromadb.PersistentClient,
+    collection_name: str = COLLECTION_NAME,
+    description: str = "RAG research assistant — FL, privacy ML, deepfakes",
+):
     """
     Get existing ChromaDB collection or create a new one.
     Using get_or_create means re-runs are safe — won't duplicate data
     if you run embed.py twice.
     """
     collection = client.get_or_create_collection(
-        name=COLLECTION_NAME,
+        name=collection_name,
         metadata={
             "hnsw:space": "cosine",   # use cosine similarity, not L2 distance
-            "description": "RAG research assistant — FL, privacy ML, deepfakes",
+            "description": description,
         }
     )
     return collection
@@ -158,19 +171,26 @@ def embed_and_store(
     print(f"Total chunks stored in ChromaDB: {collection.count():,}")
 
 
-def test_retrieval(model: SentenceTransformer, collection) -> None:
+def test_retrieval(model: SentenceTransformer, collection, corpus: str = DEFAULT_CORPUS) -> None:
     """
     Run 3 test queries to verify retrieval is working.
     Prints top-3 chunks per query with similarity scores.
     """
-    test_queries = [
-        "How does FedAvg handle non-IID data across clients?",
-        "What is differential privacy and how is epsilon defined?",
-        "How do deepfake detection models identify GAN-generated faces?",
-    ]
+    if corpus == "software_docs":
+        test_queries = [
+            "How do you define a path parameter with type validation in FastAPI?",
+            "What's the difference between a 401 and 403 response?",
+            "What OAuth 2.0 grant types does RFC 6749 define?",
+        ]
+    else:
+        test_queries = [
+            "How does FedAvg handle non-IID data across clients?",
+            "What is differential privacy and how is epsilon defined?",
+            "How do deepfake detection models identify GAN-generated faces?",
+        ]
 
     print(f"\n{'='*60}")
-    print("RETRIEVAL TEST — 3 queries across 3 domains")
+    print(f"RETRIEVAL TEST — {corpus}")
     print(f"{'='*60}")
 
     for query in test_queries:
@@ -205,9 +225,18 @@ def test_retrieval(model: SentenceTransformer, collection) -> None:
             print(f"  Text  : {doc[:200]}...")
 
 
-def main():
+def main(corpus: str = DEFAULT_CORPUS):
+    cfg = get_corpus_config(corpus)
+    chunks_path = Path(cfg["chunks_path"])
+    collection_name = cfg["collection_name"]
+    description = (
+        "Software/API documentation corpus — FastAPI, HTTP, OAuth"
+        if corpus == "software_docs"
+        else "RAG research assistant — FL, privacy ML, deepfakes"
+    )
+
     # 1. Load chunks
-    chunks = load_chunks()
+    chunks = load_chunks(chunks_path)
 
     # 2. Load BGE model
     model = load_model()
@@ -216,21 +245,28 @@ def main():
     client = chromadb.PersistentClient(
         path=str(CHROMA_DIR),
     )
-    collection = get_or_create_collection(client)
+    collection = get_or_create_collection(
+        client,
+        collection_name=collection_name,
+        description=description,
+    )
 
     # 4. Embed and store
     embed_and_store(chunks, model, collection)
 
     # 5. Test retrieval
-    test_retrieval(model, collection)
+    test_retrieval(model, collection, corpus=corpus)
 
     print(f"\n{'='*60}")
     print("✅  Phase 1 complete — corpus ingested and embedded.")
     print(f"    ChromaDB at: {CHROMA_DIR.resolve()}")
-    print(f"    Collection : {COLLECTION_NAME}")
+    print(f"    Collection : {collection_name}")
     print(f"    Chunks     : {collection.count():,}")
     print(f"{'='*60}")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--corpus", default=DEFAULT_CORPUS)
+    args = parser.parse_args()
+    main(args.corpus)

@@ -1,0 +1,59 @@
+{
+  "questions": [
+    {
+      "id": "sw_001",
+      "question": "How do you define a path parameter with type validation in FastAPI?",
+      "relevant_paper_ids": ["fastapi_path_parameters"],
+      "domain": "software_docs",
+      "question_type": "factual",
+      "tier": 1,
+      "tier_name": "factual",
+      "expected_retriever": "hybrid",
+      "ground_truth": "Declare the variable in the path template and as a typed function argument, for example @app.get(\"/items/{item_id}\") def read_item(item_id: int). FastAPI converts the URL segment using the type hint and returns HTTP 422 if conversion fails. Tighter bounds use Path(..., ge=1) and similar constraints (le, min_length). Static routes such as /users/me must be declared before /users/{user_id} so the literal is not parsed as an id."
+    },
+    {
+      "id": "sw_002",
+      "question": "What's the difference between a 401 and 403 response per RFC 7231?",
+      "relevant_paper_ids": ["rfc7231_http_semantics", "authn_vs_authz"],
+      "domain": "software_docs",
+      "question_type": "factual",
+      "tier": 1,
+      "tier_name": "factual",
+      "expected_retriever": "hybrid",
+      "ground_truth": "Per RFC 7231, 401 Unauthorized means the request lacks valid authentication credentials; the response should include a WWW-Authenticate challenge and the client may retry with credentials. 403 Forbidden means the server understood the request but refuses to authorize it — authenticating will not help, or the authenticated principal is not allowed. In API practice: missing or invalid token → 401; valid token but insufficient permission → 403."
+    },
+    {
+      "id": "sw_003",
+      "question": "How does FastAPI's dependency injection system work?",
+      "relevant_paper_ids": ["fastapi_dependency_injection"],
+      "domain": "software_docs",
+      "question_type": "synthesis",
+      "tier": 2,
+      "tier_name": "synthesis",
+      "expected_retriever": "hybrid",
+      "ground_truth": "Dependencies are callables attached with Depends. FastAPI resolves a graph before the path function runs, injects return values, and caches each dependency once per request. A generator dependency yields a resource (for example a DB session) and runs cleanup after the response. Nested Depends compose (get_current_user can depend on require_token). Tests replace callables via app.dependency_overrides. This is request-scoped wiring from type hints, not a global singleton."
+    },
+    {
+      "id": "sw_004",
+      "question": "What are the OAuth 2.0 grant types defined in RFC 6749 and when is each used?",
+      "relevant_paper_ids": ["rfc6749_oauth2"],
+      "domain": "software_docs",
+      "question_type": "synthesis",
+      "tier": 2,
+      "tier_name": "synthesis",
+      "expected_retriever": "hybrid",
+      "ground_truth": "RFC 6749 defines four grants. Authorization code: user authenticates at the authorization server, client exchanges a code for a token — default for third-party login (use PKCE). Implicit: token returned in the redirect fragment — obsolete; use code plus PKCE. Resource owner password credentials: client posts the user password — only for trusted first-party clients and discouraged. Client credentials: client authenticates as itself for machine-to-machine access. Refresh tokens renew access tokens without repeating login; they are not a fifth initial grant."
+    },
+    {
+      "id": "sw_005",
+      "question": "Compare FastAPI's async request handling to a synchronous Flask equivalent",
+      "relevant_paper_ids": ["fastapi_async", "flask_sync_vs_async"],
+      "domain": "software_docs",
+      "question_type": "multi_hop",
+      "tier": 3,
+      "tier_name": "multi_hop",
+      "expected_retriever": "hybrid",
+      "ground_truth": "FastAPI on ASGI awaits async def handlers on the event loop so many I/O-bound requests can share a worker; sync def handlers are run in a threadpool. Flask's typical WSGI setup occupies a worker thread until a sync view returns; concurrency equals worker count. Flask 2 can use async views, but calling blocking libraries such as requests still blocks. FastAPI wins when handlers await httpx/async DB; if both stacks call a blocking ORM on every request, threadpools and Flask threads look similar. FastAPI also generates OpenAPI from type hints; Flask needs add-ons."
+    }
+  ]
+}
