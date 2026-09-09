@@ -494,26 +494,6 @@ Skip **Static** on the Hugging Face create screen. HF Docker is only worth it if
 
 Until the Streamlit URL loads an answer, do not put a demo link on a resume.
 
-### Resume bullet (real RAGAS numbers)
-
-Built a domain-agnostic RAG research assistant over 251 arXiv papers (federated learning, privacy ML, deepfakes) plus a software-docs generalization corpus; hybrid retrieval (BM25 + BGE + FlashRank, RRF k=60) reached 0.954 faithfulness on a 25-question golden eval (vs 0.933 dense-only); LangGraph ReAct agent handles multi-hop questions; FastAPI SSE + Streamlit.
-
-### Loom script (~3 minutes)
-
-Opening: "This is a research assistant for federated learning and privacy ML papers. What makes it different is the retrieval ablation and the ReAct agent for complex queries."
-
-1. Sidebar: 251 papers, BGE-768, corpus toggle (research vs software docs).
-2. Simple query, Hybrid mode: "How does FedAvg aggregate client updates?" — sources then streamed answer.
-3. Agentic mode: "Compare FedAvg and pFedMe on non-IID data" — sub-questions + tool-call trace.
-4. Ablation tab: BM25 vs dense vs hybrid table (faithfulness 0.889 / 0.933 / 0.954).
-5. Close on GitHub + `/health` contract: `{"status": "ok", "corpus_size": N, "model": "BGE-base"}`.
-
-Record in one take after one rehearsal. Paste the Loom (or unlisted YouTube) URL under this heading once it exists.
-
-### LinkedIn (paste when you post)
-
-Built a RAG research assistant over 251 arXiv papers on federated learning, privacy ML, and deepfakes. Hybrid retrieval (BM25 + dense + cross-encoder reranking) hit 0.954 RAGAS faithfulness on a 25-question golden set. A LangGraph ReAct agent handles multi-hop questions. The same pipeline also runs on a second software-docs corpus — config flag, separate index, one extra chunking parameter for code fences.
-
 GitHub: https://github.com/harshbir026/rag-research-assistant
 
 ---
