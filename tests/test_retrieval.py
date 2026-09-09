@@ -39,6 +39,7 @@ def test_too_short_query_raises_validation_error():
     with pytest.raises(QueryValidationError):
         retrieve_dense("hi")
 
+@pytest.mark.requires_chromadb
 def test_bm25_fedavg_retrieval():
     """BM25 should retrieve chunks mentioning FedAvg when queried directly."""
     results = retrieve_bm25("FedAvg federated averaging aggregation", k=5)
@@ -47,6 +48,7 @@ def test_bm25_fedavg_retrieval():
     assert any(w in combined for w in ["fedavg", "federated averaging"])
 
 
+@pytest.mark.requires_chromadb
 def test_bm25_returns_typed_chunks():
     """BM25 should return RetrievedChunk objects with the same fields as dense."""
     results = retrieve_bm25("differential privacy epsilon noise", k=3)

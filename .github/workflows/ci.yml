@@ -25,9 +25,9 @@ jobs:
       - name: Lint with ruff
         run: ruff check . || true
 
-# Tests marked 'requires_chromadb' need a populated vector store, which isn't
-      # available in a fresh CI checkout (data/chroma_db/ is gitignored). They run
-      # locally against the real 251-paper corpus but are skipped in CI.
+# Tests marked 'requires_chromadb' need a populated corpus (Chroma and/or
+      # data/chunks/*.jsonl). Those files are gitignored, so CI skips them.
+      # They still run locally against the real 251-paper index.
       - name: Run tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
