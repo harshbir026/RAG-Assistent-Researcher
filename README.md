@@ -472,29 +472,6 @@ weekend demo:
 
 **Live:** [https://rag-assistent-researcher.streamlit.app](https://rag-assistent-researcher.streamlit.app)
 
-Hugging Face **Docker and Gradio Spaces now require a paid plan**. Static Spaces cannot run this Python app. Do **not** buy PRO just for this. Use the same free host as CIPHER: [share.streamlit.io](https://share.streamlit.io).
-
-The index is uploaded as dataset `Harshbirr/researchmind-index`. The app downloads it on first boot if `data/chroma_db` is missing.
-
-1. Push `main` to GitHub (`harshbir026/RAG-Assistent-Researcher`).
-2. Open [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
-3. **Create app** → repo `harshbir026/RAG-Assistent-Researcher` → branch `main` → main file `app.py`.
-4. **Manage app → Settings → Secrets** (top-level TOML keys, not nested tables):
-
-```toml
-OPENAI_API_KEY = "sk-..."
-HF_TOKEN = "hf_..."
-INDEX_DATASET = "Harshbirr/researchmind-index"
-```
-
-`ChatOpenAI` reads `OPENAI_API_KEY` from the environment. The app copies Streamlit secrets into `os.environ` before that client is created. If you deployed before adding secrets, save them and **reboot**.
-
-5. First boot is slow (BGE ~440MB + index ~230MB).
-6. Verify: FedAvg on the research corpus, then a FastAPI/HTTP question on software docs.
-
-If pip fails on the huge `requirements.txt`, switch the Cloud app to `requirements-space.txt`.
-
-Skip **Static** on the Hugging Face create screen. HF Docker is only worth it if you later subscribe to PRO.
 
 ### Resume bullet (real RAGAS numbers)
 
