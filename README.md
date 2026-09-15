@@ -323,7 +323,7 @@ Every agentic query links directly to its LangSmith trace via
 fix a chunk-boundary bug that was making the agent spend extra reasoning steps
 reassembling truncated equations mid-retrieval.
 
-Full methodology, plots, and per-mode comparisons: [`notebooks/ablation.ipynb`](notebooks/ablation.ipynb) (exported as static HTML for reviewers who won't clone the repo).
+Full methodology, plots, 4-mode latency, agent (Tier-3 only), and chunking ablation: [`notebooks/ablation.ipynb`](notebooks/ablation.ipynb). Rebuild with `python scripts/build_ablation_notebook.py`.
 
 ---
 
