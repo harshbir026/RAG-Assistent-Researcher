@@ -21,7 +21,7 @@ short_description: Agentic RAG over federated learning papers and software docs
 
 # ResearchMind — Agentic RAG Research Assistant
 
-🔗 **Live Demo:** [https://rag-assistent-researcher.streamlit.app](https://rag-assistent-researcher.streamlit.app) (Streamlit Community Cloud; confirm the slug if you renamed the app)
+🔗 **Live Demo:** [https://rag-assistent-researcher.streamlit.app](https://rag-assistent-researcher.streamlit.app) 
 
 A retrieval-augmented research assistant over **251 arXiv papers (10,715 chunks)**
 spanning federated learning, privacy-preserving ML, and deepfake detection. The
