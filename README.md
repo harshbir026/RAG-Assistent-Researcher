@@ -472,11 +472,6 @@ weekend demo:
 
 **Live:** [https://rag-assistent-researcher.streamlit.app](https://rag-assistent-researcher.streamlit.app)
 
-
-### Resume bullet (real RAGAS numbers)
-
-Built a domain-agnostic RAG research assistant over 251 arXiv papers (federated learning, privacy ML, deepfakes) plus a software-docs generalization corpus; hybrid retrieval (BM25 + BGE + FlashRank, RRF k=60) reached 0.954 faithfulness on a 25-question golden eval (vs 0.933 dense-only); LangGraph ReAct agent handles multi-hop questions; FastAPI SSE + Streamlit.
-
 ---
 
 ## Version History
