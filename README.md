@@ -191,7 +191,7 @@ Both services share a volume-mounted `./data` directory. `.dockerignore` exclude
 | UI | Streamlit | Custom dark theme, live token streaming via `st.empty()`, agent routing/sub-question transparency, one-click LangSmith trace links |
 | Testing | pytest + pytest-mock | 12 tests total; 5 marked `requires_chromadb` (skipped in CI, pass locally), 7 run in CI |
 | CI | GitHub Actions | ruff lint + pytest on every push — took 4 real iterations to get green |
-| Deployment | Streamlit Community Cloud (live), Docker Compose locally | Index is gitignored; Cloud downloads `Harshbirr/researchmind-index` on first boot. Hugging Face Docker Spaces need a paid plan — do not use them for this demo |
+| Deployment | Streamlit Community Cloud (live), Docker Compose locally | Index is gitignored; Cloud downloads `Harshbirr/researchmind-index` on first boot. |
 
 ---
 
